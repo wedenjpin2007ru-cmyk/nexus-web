@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function RegisterForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -18,6 +16,7 @@ export default function RegisterForm() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ email, password }),
       });
       const data = (await res.json().catch(() => null)) as
@@ -27,8 +26,8 @@ export default function RegisterForm() {
         setError(data?.error || "Ошибка регистрации");
         return;
       }
-      router.push("/account");
-      router.refresh();
+      window.location.assign("/account");
+      return;
     } finally {
       setLoading(false);
     }

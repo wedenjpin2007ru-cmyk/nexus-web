@@ -1,12 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const LAST_LOGIN_EMAIL_KEY = "nexus_last_login_email";
 
 export default function LoginForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +25,7 @@ export default function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ email, password }),
       });
       const data = (await res.json().catch(() => null)) as
@@ -37,8 +36,8 @@ export default function LoginForm() {
         return;
       }
       window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email.trim());
-      router.push("/account");
-      router.refresh();
+      window.location.assign("/account");
+      return;
     } finally {
       setLoading(false);
     }
