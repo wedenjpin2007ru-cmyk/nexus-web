@@ -4,8 +4,8 @@ import fs from "fs/promises";
 import { getUserFromRequest } from "@/app/lib/auth";
 
 const CANDIDATE_EXE_PATHS = [
-  path.join(process.cwd(), "downloads", "Nexus.exe"),
-  path.join(process.cwd(), "client", "dist", "Nexus.exe"),
+  path.join(/*turbopackIgnore: true*/ process.cwd(), "downloads", "Nexus.exe"),
+  path.join(/*turbopackIgnore: true*/ process.cwd(), "client", "dist", "Nexus.exe"),
 ];
 
 export async function GET() {
@@ -21,7 +21,7 @@ export async function GET() {
   let buf: Buffer | null = null;
   for (const exePath of CANDIDATE_EXE_PATHS) {
     try {
-      buf = await fs.readFile(exePath);
+      buf = await fs.readFile(/*turbopackIgnore: true*/ exePath);
       break;
     } catch {
       /* try next */
@@ -38,7 +38,7 @@ export async function GET() {
     );
   }
 
-  return new NextResponse(buf, {
+  return new NextResponse(new Uint8Array(buf) as BodyInit, {
     headers: {
       "content-type": "application/octet-stream",
       "content-disposition": "attachment; filename=\"Nexus.exe\"",
