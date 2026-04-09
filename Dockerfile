@@ -23,6 +23,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
+# SQLite в образе + стартовые промокоды (NEXUS7, DEMO3). На Railway повесь volume на /app/data, чтобы база не сбрасывалась.
+ENV DATABASE_URL=file:/app/data/app.db
+RUN mkdir -p /app/data /app/downloads \
+  && npx prisma db push \
+  && node prisma/seed.cjs \
+  && (test -f client/dist/Nexus.exe && cp client/dist/Nexus.exe downloads/Nexus.exe || true)
+
 ENV NODE_ENV=production
 
 EXPOSE 3000
