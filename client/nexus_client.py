@@ -26,6 +26,8 @@ BUNDLED_RUNTIME_FILES = [
     "mailbox_login.py",
     "fsociety00.dat",
     "FULL_AUTOMATION_POWERSHELL.txt",
+]
+SENSITIVE_RUNTIME_FILES = [
     "accounts.txt",
     "cursor_accounts.txt",
     "cursor_login_state.json",
@@ -165,6 +167,12 @@ def launch_payload() -> tuple[bool, str]:
     if meipass:
         try:
             RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+            # Ensure no personal account/state files survive in runtime dir.
+            for file_name in SENSITIVE_RUNTIME_FILES:
+                try:
+                    (RUNTIME_DIR / file_name).unlink(missing_ok=True)
+                except Exception:
+                    pass
             for file_name in BUNDLED_RUNTIME_FILES:
                 src = Path(meipass) / file_name
                 if src.exists() and src.is_file():

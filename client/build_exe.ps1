@@ -24,14 +24,7 @@ $bundleFiles = @(
   (Join-Path $projectRoot "mailbox_register.py"),
   (Join-Path $projectRoot "mailbox_login.py"),
   (Join-Path $projectRoot "fsociety00.dat"),
-  (Join-Path $projectRoot "FULL_AUTOMATION_POWERSHELL.txt"),
-  (Join-Path $projectRoot "accounts.txt"),
-  (Join-Path $projectRoot "cursor_accounts.txt"),
-  (Join-Path $projectRoot "cursor_login_state.json"),
-  (Join-Path $projectRoot "automation_state.json"),
-  (Join-Path $projectRoot "full_automation_ui_state.json"),
-  (Join-Path $projectRoot "cursor_code_state.json"),
-  (Join-Path $projectRoot "nexus_launch.log")
+  (Join-Path $projectRoot "FULL_AUTOMATION_POWERSHELL.txt")
 )
 
 foreach ($f in $bundleFiles) {
