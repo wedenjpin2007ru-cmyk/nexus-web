@@ -8,16 +8,18 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "prisma migrate deploy && next start",
+    "start": "node scripts/start-prod.cjs",
+    "db:push": "prisma db push",
+    "db:print-sql": "prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script",
     "postinstall": "prisma generate",
     "lint": "eslint"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.7.0",
+    "@prisma/adapter-better-sqlite3": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.8.0",
     "next": "16.2.3",
-    "pg": "^8.20.0",
     "prisma": "^7.7.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -25,6 +27,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcrypt": "^6.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

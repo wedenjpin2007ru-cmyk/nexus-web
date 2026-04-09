@@ -1,0 +1,11 @@
+# Railway: https://railway.app
+# Если репозиторий — монорепо, в настройках сервиса укажи Root Directory = web
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
