@@ -11,7 +11,10 @@ import requests
 import ctypes
 
 
-APP_URL = os.environ.get("NEXUS_APP_URL", "http://localhost:3000").rstrip("/")
+APP_URL = os.environ.get(
+    "NEXUS_APP_URL",
+    "https://nexus-web-production-d7a0.up.railway.app",
+).rstrip("/")
 TOKEN_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "token.json"
 RUNTIME_DIR = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "runtime"
 BUNDLED_RUNTIME_FILES = [
