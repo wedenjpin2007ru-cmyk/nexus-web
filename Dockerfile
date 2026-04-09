@@ -23,11 +23,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
-# SQLite в образе + стартовые промокоды (NEXUS7, DEMO3). На Railway повесь volume на /app/data, чтобы база не сбрасывалась.
-ENV DATABASE_URL=file:/app/data/app.db
-RUN mkdir -p /app/data /app/downloads \
-  && npx prisma db push \
-  && node prisma/seed.cjs \
+# Не задавай здесь DATABASE_URL=file:... и не запускай prisma db push в слое сборки:
+# схема Prisma = postgresql, file: даёт P1013. Живой Postgres на этапе build обычно недоступен.
+# Синхронизация БД: Railway preDeploy → node scripts/prisma-sync.cjs и при старте → start-prod.cjs.
+RUN mkdir -p /app/downloads \
   && (test -f client/dist/Nexus.exe && cp client/dist/Nexus.exe downloads/Nexus.exe || true)
 
 ENV NODE_ENV=production
