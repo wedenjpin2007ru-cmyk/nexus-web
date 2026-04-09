@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getClientIp } from "@/app/lib/client-ip";
 import { prisma } from "@/app/lib/db";
+import { prismaErrorForClient } from "@/app/lib/prisma-user-error";
 import {
   attachUserSessionCookie,
   createUserSessionRecord,
@@ -88,15 +89,17 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "База без таблиц: дождись успешного деплоя (в логах должны быть строки [prisma-sync]) или в Railway отключи кастомный Start Command — должен быть node scripts/start-prod.cjs.",
+            "База без таблиц: в логах деплоя должна быть строка [prisma-sync] OK. Проверь preDeployCommand и что Start Command = node scripts/start-prod.cjs.",
         },
         { status: 503 },
       );
     }
+    const hint = prismaErrorForClient(e);
     return NextResponse.json(
       {
         error:
-          "Не удалось записать в базу. Проверь Postgres, DATABASE_URL и логи деплоя.",
+          hint ??
+          "Не удалось записать в базу. Проверь Postgres, DATABASE_URL и логи деплоя (ищи [prisma-sync] и ошибки SSL).",
       },
       { status: 500 },
     );

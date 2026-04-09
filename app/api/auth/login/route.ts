@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getClientIp } from "@/app/lib/client-ip";
 import { prisma } from "@/app/lib/db";
+import { prismaErrorForClient } from "@/app/lib/prisma-user-error";
 import {
   attachUserSessionCookie,
   createUserSessionRecord,
@@ -67,10 +68,12 @@ export async function POST(req: Request) {
     return res;
   } catch (e) {
     console.error("[auth/login]", e);
+    const hint = prismaErrorForClient(e);
     return NextResponse.json(
       {
         error:
-          "База недоступна. Проверь DATABASE_URL и Postgres на Railway (логи деплоя).",
+          hint ??
+          "База недоступна. Проверь DATABASE_URL, Postgres в том же проекте Railway и логи ([prisma-sync], SSL).",
       },
       { status: 500 },
     );
