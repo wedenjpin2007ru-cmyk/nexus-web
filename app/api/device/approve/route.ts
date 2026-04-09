@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/app/lib/db";
 import { getUserFromRequest, newToken, sha256Hex } from "@/app/lib/auth";
 
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
   const token = newToken();
   const tokenHash = sha256Hex(token);
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const apiToken = await tx.apiToken.create({
       data: { userId: user.id, tokenHash },
       select: { id: true },
