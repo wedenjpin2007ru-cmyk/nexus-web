@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
-import { destroyUserSession } from "@/app/lib/auth";
+import { logoutUserResponse } from "@/app/lib/auth";
+
+export const dynamic = "force-dynamic";
 
 export async function POST() {
-  await destroyUserSession();
-  return NextResponse.json({ ok: true });
+  return logoutUserResponse();
 }
 

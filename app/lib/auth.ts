@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import { prisma } from "./db";
 
 const USER_SESSION_COOKIE = "nexus_session";
@@ -22,43 +23,51 @@ export function newToken() {
   return crypto.randomBytes(32).toString("hex");
 }
 
-export async function setCookie(name: string, value: string, expires: Date) {
-  const jar = await cookies();
-  jar.set({
-    name,
-    value,
-    httpOnly: true,
+function sessionCookieBase() {
+  return {
+    httpOnly: true as const,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
-    expires,
-  });
+  };
 }
 
-export async function clearCookie(name: string) {
-  const jar = await cookies();
-  jar.set({
-    name,
-    value: "",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    expires: new Date(0),
-  });
-}
-
-export async function createUserSession(userId: string) {
+/** Запись сессии в БД; cookie вешаем через attachUserSessionCookie на NextResponse (иначе в проде часто не уходит Set-Cookie). */
+export async function createUserSessionRecord(userId: string) {
   const token = newToken();
   const tokenHash = sha256Hex(token);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30); // 30d
-
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30);
   await prisma.userSession.create({
     data: { userId, tokenHash, expiresAt },
   });
-
-  await setCookie(USER_SESSION_COOKIE, token, expiresAt);
   return { token, expiresAt };
+}
+
+export function attachUserSessionCookie(
+  res: NextResponse,
+  token: string,
+  expiresAt: Date,
+) {
+  res.cookies.set(USER_SESSION_COOKIE, token, {
+    ...sessionCookieBase(),
+    expires: expiresAt,
+  });
+}
+
+export async function logoutUserResponse(): Promise<NextResponse> {
+  const jar = await cookies();
+  const token = jar.get(USER_SESSION_COOKIE)?.value;
+  if (token) {
+    await prisma.userSession.deleteMany({
+      where: { tokenHash: sha256Hex(token) },
+    });
+  }
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set(USER_SESSION_COOKIE, "", {
+    ...sessionCookieBase(),
+    expires: new Date(0),
+  });
+  return res;
 }
 
 export async function getUserFromRequest() {
@@ -78,22 +87,23 @@ export async function getUserFromRequest() {
   return session.user;
 }
 
-export async function destroyUserSession() {
-  const jar = await cookies();
-  const token = jar.get(USER_SESSION_COOKIE)?.value;
-  await clearCookie(USER_SESSION_COOKIE);
-  if (!token) return;
-  await prisma.userSession.deleteMany({ where: { tokenHash: sha256Hex(token) } });
-}
-
-export async function createAdminSession() {
+export async function createAdminSessionRecord() {
   const token = newToken();
   const tokenHash = sha256Hex(token);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12); // 12h
-
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12);
   await prisma.adminSession.create({ data: { tokenHash, expiresAt } });
-  await setCookie(ADMIN_SESSION_COOKIE, token, expiresAt);
   return { token, expiresAt };
+}
+
+export function attachAdminSessionCookie(
+  res: NextResponse,
+  token: string,
+  expiresAt: Date,
+) {
+  res.cookies.set(ADMIN_SESSION_COOKIE, token, {
+    ...sessionCookieBase(),
+    expires: expiresAt,
+  });
 }
 
 export async function isAdminRequest() {
@@ -107,13 +117,18 @@ export async function isAdminRequest() {
   return true;
 }
 
-export async function destroyAdminSession() {
+export async function logoutAdminResponse(): Promise<NextResponse> {
   const jar = await cookies();
   const token = jar.get(ADMIN_SESSION_COOKIE)?.value;
-  await clearCookie(ADMIN_SESSION_COOKIE);
-  if (!token) return;
-  await prisma.adminSession.deleteMany({
-    where: { tokenHash: sha256Hex(token) },
+  if (token) {
+    await prisma.adminSession.deleteMany({
+      where: { tokenHash: sha256Hex(token) },
+    });
+  }
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set(ADMIN_SESSION_COOKIE, "", {
+    ...sessionCookieBase(),
+    expires: new Date(0),
   });
+  return res;
 }
-
