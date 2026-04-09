@@ -1,0 +1,119 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  createdAt        DateTime  @default(now())
+  isBanned         Boolean   @default(false)
+  subscriptionEndsAt DateTime?
+
+  sessions         UserSession[]
+  promoRedemptions PromoRedemption[]
+  apiTokens        ApiToken[]
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AdminSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model PromoCode {
+  id             String    @id @default(cuid())
+  code           String    @unique
+  kind           String
+  durationDays   Int
+  startsAt       DateTime?
+  endsAt         DateTime?
+  maxRedemptions Int?
+  redeemedCount  Int       @default(0)
+  isDisabled     Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  redemptions PromoRedemption[]
+
+  @@index([code])
+  @@index([isDisabled])
+}
+
+model PromoRedemption {
+  id          String   @id @default(cuid())
+  promoCodeId String
+  userId      String
+  redeemedAt  DateTime @default(now())
+
+  promoCode PromoCode @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([promoCodeId, userId])
+  @@index([userId])
+  @@index([promoCodeId])
+}
+
+model IpRegistration {
+  id        String   @id @default(cuid())
+  ip        String
+  day       String   // YYYY-MM-DD
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([ip, day])
+  @@index([ip])
+}
+
+model ApiToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceRequests DeviceAuthRequest[]
+
+  @@index([userId])
+  @@index([revokedAt])
+}
+
+model DeviceAuthRequest {
+  id          String   @id @default(cuid())
+  userCode    String   @unique
+  tokenId     String?
+  tokenPlain  String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  approvedAt  DateTime?
+
+  token ApiToken? @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+
+  @@index([expiresAt])
+}
