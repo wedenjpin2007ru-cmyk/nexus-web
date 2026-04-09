@@ -1,8 +1,24 @@
-const { PrismaClient } = require("@prisma/client");
-const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
+require("../scripts/patch-database-url.cjs");
 
-const databaseUrl = process.env.DATABASE_URL ?? "file:./dev.db";
-const adapter = new PrismaBetterSqlite3({ url: databaseUrl });
+const { PrismaClient } = require("@prisma/client");
+const { PrismaPg } = require("@prisma/adapter-pg");
+
+const connectionString =
+  process.env.DATABASE_URL ??
+  "postgresql://postgres:postgres@localhost:5432/nexus";
+
+const useRelaxedTls =
+  process.env.PGSSL_NO_VERIFY === "1" ||
+  /[?&]sslmode=(require|prefer)/i.test(connectionString) ||
+  /\brlwy\.net\b|railway\.internal|neon\.tech|supabase\.co|pooler\.supabase/i.test(
+    connectionString,
+  );
+
+const adapter = new PrismaPg({
+  connectionString,
+  ...(useRelaxedTls ? { ssl: { rejectUnauthorized: false } } : {}),
+});
+
 const prisma = new PrismaClient({ adapter });
 
 async function main() {

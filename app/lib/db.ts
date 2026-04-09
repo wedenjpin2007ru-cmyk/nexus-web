@@ -10,10 +10,6 @@ const connectionString =
   process.env.DATABASE_URL ??
   "postgresql://postgres:postgres@localhost:5432/nexus";
 
-/**
- * node-pg + облачный Postgres: часто нужен TLS, а в URL нет sslmode=require.
- * Включаем смягчённый TLS для типичных хостов Railway/Neon/Supabase и по явным флагам.
- */
 const useRelaxedTls =
   process.env.PGSSL_NO_VERIFY === "1" ||
   /[?&]sslmode=(require|prefer)/i.test(connectionString) ||
