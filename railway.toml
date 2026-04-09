@@ -1,11 +1,11 @@
 # Railway: https://railway.app
-# Если репозиторий — монорепо, в настройках сервиса укажи Root Directory = web
+# Dockerfile задаёт Node 22 (Prisma 7.7). Если монорепо — Root Directory = web
 
 [build]
-builder = "nixpacks"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npm run start"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
