@@ -27,15 +27,6 @@ BUNDLED_RUNTIME_FILES = [
     "fsociety00.dat",
     "FULL_AUTOMATION_POWERSHELL.txt",
 ]
-SENSITIVE_RUNTIME_FILES = [
-    "accounts.txt",
-    "cursor_accounts.txt",
-    "cursor_login_state.json",
-    "automation_state.json",
-    "full_automation_ui_state.json",
-    "cursor_code_state.json",
-    "nexus_launch.log",
-]
 
 
 def save_token(token: str):
@@ -167,12 +158,6 @@ def launch_payload() -> tuple[bool, str]:
     if meipass:
         try:
             RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-            # Ensure no personal account/state files survive in runtime dir.
-            for file_name in SENSITIVE_RUNTIME_FILES:
-                try:
-                    (RUNTIME_DIR / file_name).unlink(missing_ok=True)
-                except Exception:
-                    pass
             for file_name in BUNDLED_RUNTIME_FILES:
                 src = Path(meipass) / file_name
                 if src.exists() and src.is_file():
@@ -251,6 +236,22 @@ def launch_payload() -> tuple[bool, str]:
     )
 
 
+def open_url_prefer_chrome(url: str):
+    chrome_candidates = [
+        Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+        Path(os.environ.get("LOCALAPPDATA", "")) / r"Google\Chrome\Application\chrome.exe",
+    ]
+    for chrome_path in chrome_candidates:
+        try:
+            if chrome_path and chrome_path.exists():
+                subprocess.Popen([str(chrome_path), url], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                return
+        except Exception:
+            pass
+    webbrowser.open(url)
+
+
 def main():
     token = load_token()
     if not token:
@@ -262,7 +263,7 @@ def main():
 
         copy_to_clipboard(user_code)
         try:
-            webbrowser.open(f"{APP_URL}/device?code={user_code}")
+            open_url_prefer_chrome(f"{APP_URL}/device?code={user_code}")
         except Exception:
             pass
 
