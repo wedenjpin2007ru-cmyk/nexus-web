@@ -1,5 +1,6 @@
 "use client";
 
+import { messageFromApiResponse } from "@/app/lib/api-error-message";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -18,17 +19,29 @@ export default function AdminLoginForm() {
       const res = await fetch("/api/admin/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string }
-        | null;
+      const raw = await res.text();
       if (!res.ok) {
-        setError(data?.error || "Ошибка входа");
+        setError(messageFromApiResponse(res, raw, "Ошибка входа"));
+        return;
+      }
+      let ok = false;
+      try {
+        const data = JSON.parse(raw) as { ok?: boolean };
+        ok = data?.ok === true;
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        setError("Сервер вернул неожиданный ответ.");
         return;
       }
       router.push("/admin");
       router.refresh();
+    } catch {
+      setError("Не удалось связаться с сервером.");
     } finally {
       setLoading(false);
     }

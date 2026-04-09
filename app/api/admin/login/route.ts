@@ -1,14 +1,26 @@
 import { NextResponse } from "next/server";
-import { createAdminSession } from "@/app/lib/auth";
+import { getClientIp } from "@/app/lib/client-ip";
+import {
+  attachAdminSessionCookie,
+  createAdminSessionRecord,
+} from "@/app/lib/auth";
 import { checkRateLimit } from "@/app/lib/rate-limit";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "ip:local";
-  const rl = checkRateLimit(`admin_login:${ip}`, { capacity: 6, refillPerSec: 0.1 }); // ~6 then 1 per 10s
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: "Слишком много попыток. Подожди немного." },
-      { status: 429 },
+  const ip = getClientIp(req);
+  if (ip) {
+    const rl = checkRateLimit(`admin_login:${ip}`, { capacity: 6, refillPerSec: 0.1 });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: "Слишком много попыток. Подожди немного." },
+        { status: 429 },
+      );
+    }
+  } else if (process.env.NODE_ENV === "production") {
+    console.warn(
+      "[admin/login] client IP не определён — rate limit по IP отключён для этого запроса",
     );
   }
 
@@ -23,14 +35,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Неверные данные" }, { status: 400 });
   }
 
-  const expectedUser = process.env.ADMIN_USERNAME || "";
+  const expectedUser = (process.env.ADMIN_USERNAME || "").trim();
   const expectedPass = process.env.ADMIN_PASSWORD || "";
+
+  if (!expectedUser || !expectedPass) {
+    return NextResponse.json(
+      {
+        error:
+          "Админка не настроена: в Railway → Variables задай ADMIN_USERNAME и ADMIN_PASSWORD (не оставляй пароль пустым).",
+      },
+      { status: 503 },
+    );
+  }
 
   if (username !== expectedUser || password !== expectedPass) {
     return NextResponse.json({ error: "Неверные данные" }, { status: 401 });
   }
 
-  await createAdminSession();
-  return NextResponse.json({ ok: true });
+  const session = await createAdminSessionRecord();
+  const res = NextResponse.json({ ok: true });
+  attachAdminSessionCookie(res, session.token, session.expiresAt);
+  return res;
 }
 

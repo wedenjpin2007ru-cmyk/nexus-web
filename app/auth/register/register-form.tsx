@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { messageFromApiResponse } from "@/app/lib/api-error-message";
 
 export default function RegisterForm() {
   const [email, setEmail] = useState("");
@@ -19,15 +20,28 @@ export default function RegisterForm() {
         credentials: "include",
         body: JSON.stringify({ email, password }),
       });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string }
-        | null;
+      const raw = await res.text();
       if (!res.ok) {
-        setError(data?.error || "Ошибка регистрации");
+        setError(messageFromApiResponse(res, raw, "Ошибка регистрации"));
+        return;
+      }
+      let ok = false;
+      try {
+        const data = JSON.parse(raw) as { ok?: boolean };
+        ok = data?.ok === true;
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        setError("Сервер вернул неожиданный ответ после регистрации.");
         return;
       }
       window.location.assign("/account");
       return;
+    } catch {
+      setError(
+        "Не удалось связаться с сервером. Проверь интернет или попробуй позже.",
+      );
     } finally {
       setLoading(false);
     }

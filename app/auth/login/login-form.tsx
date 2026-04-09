@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { messageFromApiResponse } from "@/app/lib/api-error-message";
 
 const LAST_LOGIN_EMAIL_KEY = "nexus_last_login_email";
 
@@ -28,16 +29,29 @@ export default function LoginForm() {
         credentials: "include",
         body: JSON.stringify({ email, password }),
       });
-      const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; error?: string }
-        | null;
+      const raw = await res.text();
       if (!res.ok) {
-        setError(data?.error || "Ошибка входа");
+        setError(messageFromApiResponse(res, raw, "Ошибка входа"));
+        return;
+      }
+      let ok = false;
+      try {
+        const data = JSON.parse(raw) as { ok?: boolean };
+        ok = data?.ok === true;
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        setError("Сервер вернул неожиданный ответ после входа.");
         return;
       }
       window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email.trim());
       window.location.assign("/account");
       return;
+    } catch {
+      setError(
+        "Не удалось связаться с сервером. Проверь интернет или попробуй позже.",
+      );
     } finally {
       setLoading(false);
     }
