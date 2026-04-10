@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { getUserFromRequest } from "@/app/lib/auth";
 
-const navItems = [
-  { href: "/", label: "Главная" },
-  { href: "/guide#faq", label: "FAQ" },
-  { href: "/guide#support", label: "Контакты поддержки" },
-  { href: "/account", label: "Кабинет" },
-];
-
 export default async function TopNav() {
   const user = await getUserFromRequest();
+  const navItems = [
+    { href: "/", label: "Главная" },
+    { href: "/guide", label: "Гайд" },
+    { href: "/guide#faq", label: "FAQ" },
+    { href: "/guide#support", label: "Контакты поддержки" },
+    ...(user ? [{ href: "/account", label: "Кабинет" }] : []),
+  ];
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-black/45 backdrop-blur-md">
