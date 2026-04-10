@@ -709,7 +709,7 @@ _CLIENT_PANEL_HTML_POST = r"""</script>
 <script>
 (function(){
 const raw=document.getElementById('nx-s').textContent;
-const S=JSON.parse(raw);
+let S=JSON.parse(raw);
 const $=id=>document.getElementById(id);
 $('line-email').textContent=S.email||'—';
 $('line-ends').textContent=S.endsAt||'—';
@@ -765,6 +765,26 @@ $('btn-account').addEventListener('click',()=>{window.open(S.accountUrl,'_blank'
 $('btn-exit').addEventListener('click',()=>{post('/exit');});
 $('btn-close').addEventListener('click',()=>{post('/exit');});
 addEventListener('beforeunload',()=>{try{navigator.sendBeacon('/bye','');}catch(e){}});
+async function pollSubscription(){
+  try{
+    const r=await fetch('/status');
+    if(!r.ok)return;
+    const d=await r.json();
+    if(!d||!d.ok)return;
+    S.hasAccess=!!d.hasAccess;
+    if(d.email!==undefined&&d.email!=='')S.email=d.email;
+    if(d.endsAt!==undefined)S.endsAt=d.endsAt;
+    $('line-email').textContent=S.email||'—';
+    $('line-ends').textContent=S.endsAt||'—';
+    $('line-status').textContent=S.hasAccess?'●  ПОДПИСКА АКТИВНА':'○  НЕТ ДОСТУПА';
+    btnLaunch.disabled=!S.hasAccess;
+    btnLaunch.setAttribute('aria-disabled',S.hasAccess?'false':'true');
+    btnLaunch.title=S.hasAccess?'':'Нет активной подписки — запуск недоступен';
+    $('hint').textContent=S.hasAccess?'':'Подписка не активна или истекла. Активируй промокод в кабинете или войди в тот же аккаунт, что привязывал устройство. Запуск возможен только при активной подписке.';
+  }catch(e){}
+}
+setInterval(pollSubscription,20000);
+pollSubscription();
 })();
 </script>
 </body>
@@ -777,10 +797,13 @@ def show_nexus_bw_panel(
     account_email: str | None,
     subscription_ends_at_iso: str | None,
     app_url: str,
+    poll_sess: requests.Session | None = None,
+    poll_token: str | None = None,
 ) -> LaunchMode | None:
     """
     Панель в браузере (localhost), в духе launcher.py: матрица, scanlines, ч/б.
     Один сценарий «nexus-cursor» → launcher.py. None — выход без запуска.
+    При poll_sess + poll_token — GET /status опрашивает сервер; /launch проверяет подписку снова.
     """
     state = {
         "hasAccess": bool(has_access),
@@ -794,6 +817,7 @@ def show_nexus_bw_panel(
     result: list[LaunchMode | None] = [None]
     done = threading.Event()
     server_box: list[http.server.HTTPServer] = []
+    poll_lock = threading.Lock()
 
     def schedule_shutdown() -> None:
         def _q() -> None:
@@ -823,14 +847,47 @@ def show_nexus_bw_panel(
                 self.rfile.read(min(n, 65536))
 
         def do_GET(self) -> None:
-            if self.path == "/" or self.path.startswith("/?"):
+            path = self.path.split("?", 1)[0]
+            if path == "/status":
+                if poll_sess is not None and poll_token:
+                    with poll_lock:
+                        ok_live, ends_live, http_st, _, em_live = check_access(
+                            poll_sess, poll_token
+                        )
+                    live_ok = bool(ok_live) and http_st == 200
+                    ends_fmt = _format_ru_subscription_ends(
+                        ends_live if isinstance(ends_live, str) else None
+                    )
+                    self._json(
+                        200,
+                        {
+                            "ok": True,
+                            "live": True,
+                            "hasAccess": live_ok,
+                            "email": (em_live or account_email or ""),
+                            "endsAt": ends_fmt,
+                        },
+                    )
+                else:
+                    self._json(
+                        200,
+                        {
+                            "ok": True,
+                            "live": False,
+                            "hasAccess": bool(has_access),
+                            "email": account_email or "",
+                            "endsAt": _format_ru_subscription_ends(subscription_ends_at_iso),
+                        },
+                    )
+                return
+            if path == "/" or path.startswith("/?"):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(page)
                 return
-            if self.path == "/favicon.ico":
+            if path == "/favicon.ico":
                 self.send_response(204)
                 self.end_headers()
                 return
@@ -840,7 +897,12 @@ def show_nexus_bw_panel(
             self._drain_body()
             path = self.path.split("?", 1)[0]
             if path == "/launch":
-                if not has_access:
+                effective = has_access
+                if poll_sess is not None and poll_token:
+                    with poll_lock:
+                        ok_live, _, http_st, _, _ = check_access(poll_sess, poll_token)
+                    effective = bool(ok_live) and http_st == 200
+                if not effective:
                     self._json(403, {"ok": False, "error": "no_access"})
                     return
                 result[0] = "launcher"
@@ -999,6 +1061,8 @@ def main():
                 account_email=acct_email,
                 subscription_ends_at_iso=ends_at if isinstance(ends_at, str) else None,
                 app_url=APP_URL,
+                poll_sess=sess,
+                poll_token=token,
             )
         return 2
 
@@ -1016,6 +1080,8 @@ def main():
             account_email=acct_email,
             subscription_ends_at_iso=ends_iso,
             app_url=APP_URL,
+            poll_sess=sess,
+            poll_token=token,
         )
 
     if launch_mode is None:
