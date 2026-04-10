@@ -5,7 +5,7 @@ a = Analysis(
     ['C:\\Users\\developer\\Desktop\\nexus\\web\\client\\nexus_client.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:\\Users\\developer\\Desktop\\nexus\\run_fsociety.cmd', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\run_fsociety.ps1', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\launcher.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\cursor.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\mailbox_register.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\mailbox_login.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\fsociety00.dat', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\FULL_AUTOMATION_POWERSHELL.txt', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\accounts.txt', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\cursor_accounts.txt', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\cursor_login_state.json', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\automation_state.json', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\full_automation_ui_state.json', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\cursor_code_state.json', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\nexus_launch.log', '.')],
+    datas=[('C:\\Users\\developer\\Desktop\\nexus\\run_fsociety.cmd', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\run_fsociety.ps1', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\launcher.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\cursor.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\mailbox_register.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\mailbox_login.py', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\fsociety00.dat', '.'), ('C:\\Users\\developer\\Desktop\\nexus\\FULL_AUTOMATION_POWERSHELL.txt', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

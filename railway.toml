@@ -1,11 +1,25 @@
 # Railway: https://railway.app
 # Dockerfile задаёт Node 22 (Prisma 7.7). Если монорепо — Root Directory = web
+#
+# PostgreSQL (обязательно):
+# 1) В проекте: New → Database → PostgreSQL.
+# 2) Открой ВЕБ-сервис (не Postgres) → Variables.
+# 3) Удали неверный DATABASE_URL (любой SQLite file:...) если остался в Variables.
+# 4) Add variable → DATABASE_URL → вкладка Reference → сервис Postgres → DATABASE_URL.
+#    Вручную значение выглядит так: ${{ Postgres.DATABASE_URL }}
+#    (если база называется иначе — подставь это имя вместо Postgres).
+# См. также railway.env.example в этой папке.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-healthcheckPath = "/"
+# До переключения трафика: таблицы в Postgres (иначе P2021 / «Ошибка регистрации»).
+preDeployCommand = "node scripts/prisma-sync.cjs"
+# Старт приложения. Sync на boot выключен по умолчанию для стабильности.
+# Включить вручную можно через RUN_DB_SYNC_ON_START=1.
+startCommand = "node scripts/start-prod.cjs"
+healthcheckPath = "/api/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

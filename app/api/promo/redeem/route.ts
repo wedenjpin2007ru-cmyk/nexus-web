@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/app/lib/db";
 import { getUserFromRequest } from "@/app/lib/auth";
 
@@ -43,55 +44,58 @@ export async function POST(req: Request) {
     }
   }
 
+  const already = await prisma.promoRedemption.findUnique({
+    where: { promoCodeId_userId: { promoCodeId: promo.id, userId: user.id } },
+  });
+  if (already) {
+    return NextResponse.json({ error: "Уже активировано" }, { status: 400 });
+  }
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { subscriptionEndsAt: true },
+  });
+  if (!currentUser) {
+    return NextResponse.json({ error: "Ошибка активации" }, { status: 400 });
+  }
+
+  const base =
+    currentUser.subscriptionEndsAt &&
+    currentUser.subscriptionEndsAt.getTime() > now.getTime()
+      ? currentUser.subscriptionEndsAt
+      : now;
+
+  const newEndsAt = new Date(
+    base.getTime() + promo.durationDays * 24 * 60 * 60 * 1000,
+  );
+
+  // maxWait — сколько ждать свободный коннект из пула (по умолчанию 2s → «Unable to start a transaction in the given time»).
   try {
-    const result = await prisma.$transaction(async (tx: any) => {
-      const already = await tx.promoRedemption.findUnique({
-        where: { promoCodeId_userId: { promoCodeId: promo.id, userId: user.id } },
-      });
-      if (already) {
-        return { ok: false as const, error: "Уже активировано" };
-      }
-
-      const currentUser = await tx.user.findUnique({
-        where: { id: user.id },
-        select: { subscriptionEndsAt: true },
-      });
-      if (!currentUser) return { ok: false as const, error: "User not found" };
-
-      const base =
-        currentUser.subscriptionEndsAt &&
-        currentUser.subscriptionEndsAt.getTime() > now.getTime()
-          ? currentUser.subscriptionEndsAt
-          : now;
-
-      const newEndsAt = new Date(
-        base.getTime() + promo.durationDays * 24 * 60 * 60 * 1000,
-      );
-
-      await tx.promoRedemption.create({
-        data: { promoCodeId: promo.id, userId: user.id },
-      });
-      await tx.promoCode.update({
-        where: { id: promo.id },
-        data: { redeemedCount: { increment: 1 } },
-      });
-      await tx.user.update({
-        where: { id: user.id },
-        data: { subscriptionEndsAt: newEndsAt },
-      });
-
-      return { ok: true as const, subscriptionEndsAt: newEndsAt };
-    });
-
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 400 });
-    }
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.promoRedemption.create({
+          data: { promoCodeId: promo.id, userId: user.id },
+        });
+        await tx.promoCode.update({
+          where: { id: promo.id },
+          data: { redeemedCount: { increment: 1 } },
+        });
+        await tx.user.update({
+          where: { id: user.id },
+          data: { subscriptionEndsAt: newEndsAt },
+        });
+      },
+      { maxWait: 25_000, timeout: 25_000 },
+    );
 
     return NextResponse.json({
       ok: true,
-      subscriptionEndsAt: result.subscriptionEndsAt.toISOString(),
+      subscriptionEndsAt: newEndsAt.toISOString(),
     });
-  } catch {
+  } catch (e: unknown) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return NextResponse.json({ error: "Уже активировано" }, { status: 400 });
+    }
     return NextResponse.json({ error: "Ошибка активации" }, { status: 500 });
   }
 }
