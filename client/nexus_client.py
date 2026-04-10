@@ -1,18 +1,22 @@
+import http.server
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import requests
 import ctypes
 
+LaunchMode = Literal["auto", "cmd", "launcher"]
 
 CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-13")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
@@ -413,7 +417,14 @@ def prepare_bundled_runtime() -> tuple[bool, str]:
         return False, f"Не удалось распаковать встроенные файлы: {e}"
 
 
-def launch_payload(*, assume_bundled_files_ready: bool = False) -> tuple[bool, str]:
+def launch_payload(
+    *,
+    assume_bundled_files_ready: bool = False,
+    mode: LaunchMode = "auto",
+) -> tuple[bool, str]:
+    allow_cmd = mode in ("auto", "cmd")
+    allow_launcher = mode in ("auto", "launcher")
+
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         if not assume_bundled_files_ready:
@@ -421,71 +432,79 @@ def launch_payload(*, assume_bundled_files_ready: bool = False) -> tuple[bool, s
             if not ok:
                 return False, err
 
-        bundled_cmd = RUNTIME_DIR / "run_fsociety.cmd"
-        if bundled_cmd.exists():
-            try:
-                subprocess.Popen(
-                    ["cmd", "/c", str(bundled_cmd)],
-                    cwd=str(RUNTIME_DIR),
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                return True, f"Запущен {bundled_cmd.name} (встроенный пакет)"
-            except Exception as e:
-                return False, f"Не удалось запустить встроенный {bundled_cmd.name}: {e}"
-
-        bundled_py = RUNTIME_DIR / "launcher.py"
-        if bundled_py.exists():
-            try:
-                subprocess.Popen(
-                    ["py", str(bundled_py)],
-                    cwd=str(RUNTIME_DIR),
-                    creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
-                )
-                return True, f"Запущен {bundled_py.name} (встроенный пакет)"
-            except Exception:
+        if allow_cmd:
+            bundled_cmd = RUNTIME_DIR / "run_fsociety.cmd"
+            if bundled_cmd.exists():
                 try:
                     subprocess.Popen(
-                        ["python", str(bundled_py)],
+                        ["cmd", "/c", str(bundled_cmd)],
+                        cwd=str(RUNTIME_DIR),
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    return True, f"Запущен {bundled_cmd.name} (встроенный пакет)"
+                except Exception as e:
+                    return False, f"Не удалось запустить встроенный {bundled_cmd.name}: {e}"
+
+        if allow_launcher:
+            bundled_py = RUNTIME_DIR / "launcher.py"
+            if bundled_py.exists():
+                try:
+                    subprocess.Popen(
+                        ["py", str(bundled_py)],
                         cwd=str(RUNTIME_DIR),
                         creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                     )
                     return True, f"Запущен {bundled_py.name} (встроенный пакет)"
-                except Exception as e:
-                    return False, f"Не удалось запустить встроенный {bundled_py.name}: {e}"
+                except Exception:
+                    try:
+                        subprocess.Popen(
+                            ["python", str(bundled_py)],
+                            cwd=str(RUNTIME_DIR),
+                            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                        )
+                        return True, f"Запущен {bundled_py.name} (встроенный пакет)"
+                    except Exception as e:
+                        return False, f"Не удалось запустить встроенный {bundled_py.name}: {e}"
 
-    cmd_file = find_existing_file("run_fsociety.cmd")
-    if cmd_file:
-        try:
-            subprocess.Popen(
-                ["cmd", "/c", str(cmd_file)],
-                cwd=str(cmd_file.parent),
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            return True, f"Запущен {cmd_file.name}"
-        except Exception as e:
-            return False, f"Не удалось запустить {cmd_file.name}: {e}"
-
-    py_file = find_existing_file("launcher.py")
-    if py_file:
-        py_cmd = ["py", str(py_file)]
-        try:
-            subprocess.Popen(
-                py_cmd,
-                cwd=str(py_file.parent),
-                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
-            )
-            return True, f"Запущен {py_file.name}"
-        except Exception:
+    if allow_cmd:
+        cmd_file = find_existing_file("run_fsociety.cmd")
+        if cmd_file:
             try:
                 subprocess.Popen(
-                    ["python", str(py_file)],
+                    ["cmd", "/c", str(cmd_file)],
+                    cwd=str(cmd_file.parent),
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                return True, f"Запущен {cmd_file.name}"
+            except Exception as e:
+                return False, f"Не удалось запустить {cmd_file.name}: {e}"
+
+    if allow_launcher:
+        py_file = find_existing_file("launcher.py")
+        if py_file:
+            py_cmd = ["py", str(py_file)]
+            try:
+                subprocess.Popen(
+                    py_cmd,
                     cwd=str(py_file.parent),
                     creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
                 )
                 return True, f"Запущен {py_file.name}"
-            except Exception as e:
-                return False, f"Не удалось запустить {py_file.name}: {e}"
+            except Exception:
+                try:
+                    subprocess.Popen(
+                        ["python", str(py_file)],
+                        cwd=str(py_file.parent),
+                        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                    )
+                    return True, f"Запущен {py_file.name}"
+                except Exception as e:
+                    return False, f"Не удалось запустить {py_file.name}: {e}"
 
+    if mode == "cmd":
+        return False, "run_fsociety.cmd не найден (ни во встроенном пакете, ни рядом с EXE)."
+    if mode == "launcher":
+        return False, "launcher.py не найден (ни во встроенном пакете, ни рядом с EXE)."
     return (
         False,
         "Файлы launch не найдены рядом с EXE (ожидались run_fsociety.cmd или launcher.py).",
@@ -498,6 +517,371 @@ def open_default_browser(url: str) -> None:
         webbrowser.open(url, new=2)
     except Exception:
         pass
+
+
+PANEL_APP_PROFILE_DIR = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "panel_app_profile"
+
+_BRAVE_PATHS_PANEL = [
+    r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+    r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+    os.path.expandvars(r"%LocalAppData%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+]
+_CHROME_PATHS_PANEL = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+]
+_EDGE_PATHS_PANEL = [
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+]
+
+
+def _find_chromium_for_app_mode() -> str | None:
+    for group in (_BRAVE_PATHS_PANEL, _CHROME_PATHS_PANEL, _EDGE_PATHS_PANEL):
+        for p in group:
+            if os.path.isfile(p):
+                return p
+    return None
+
+
+def open_client_panel_app_window(url: str) -> bool:
+    """
+    Окно без вкладок и без адресной строки (флаг --app), по смыслу как launcher.py.
+    NEXUS_PANEL_FULL_BROWSER=1 — обычная вкладка через webbrowser.
+    """
+    if os.environ.get("NEXUS_PANEL_FULL_BROWSER", "").strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            webbrowser.open(url, new=2)
+            return True
+        except Exception:
+            return False
+
+    exe = _find_chromium_for_app_mode()
+    if not exe:
+        try:
+            webbrowser.open(url, new=2)
+            return True
+        except Exception:
+            return False
+
+    try:
+        PANEL_APP_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        profile = str(PANEL_APP_PROFILE_DIR.resolve())
+        subprocess.Popen(
+            [
+                exe,
+                f"--user-data-dir={profile}",
+                "--new-window",
+                f"--app={url}",
+            ],
+            cwd=os.environ.get("SystemRoot", "C:\\Windows"),
+        )
+        log(f"panel app window: {exe} --app=…")
+        return True
+    except Exception as e:
+        log(f"panel app window failed: {e!r}, fallback webbrowser")
+        try:
+            webbrowser.open(url, new=2)
+            return True
+        except Exception:
+            return False
+
+
+def _env_no_gui() -> bool:
+    return os.environ.get("NEXUS_NO_GUI", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _format_ru_subscription_ends(iso: str | None) -> str:
+    if not iso:
+        return "—"
+    try:
+        s = str(iso).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return str(iso)
+
+
+# Ч/б веб-панель (как launcher.py): до вставки JSON-состояния и после.
+_CLIENT_PANEL_HTML_PRE = r"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEXUS · nexus-cursor</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#000;color:#fff;overflow:hidden;font-family:'Rajdhani',sans-serif;font-weight:500;cursor:none}
+canvas#bg{position:fixed;inset:0;z-index:0;display:block;width:100vw;height:100vh}
+.scanlines{position:fixed;inset:0;pointer-events:none;z-index:5;opacity:.35;
+  background:linear-gradient(rgba(255,255,255,0) 50%,rgba(0,0,0,.12) 50%);
+  background-size:100% 3px;animation:scan 8s linear infinite}
+@keyframes scan{from{background-position:0 0}to{background-position:0 100%}}
+.vignette{position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:radial-gradient(ellipse at center,transparent 0%,rgba(0,0,0,.85) 100%)}
+.noise{position:fixed;inset:-50%;z-index:3;pointer-events:none;opacity:.04;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation:grain .8s steps(2) infinite}
+@keyframes grain{0%,100%{transform:translate(0,0)}25%{transform:translate(-2%,2%)}50%{transform:translate(2%,-1%)}75%{transform:translate(-1%,-2%)}}
+.cursor-dot{position:fixed;width:6px;height:6px;border-radius:50%;background:#fff;
+  box-shadow:0 0 12px #fff,0 0 28px rgba(255,255,255,.35);pointer-events:none;z-index:9999;transform:translate(-50%,-50%)}
+.ui{position:relative;z-index:10;min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  justify-content:flex-start;padding:28px 24px 32px}
+.hdr{width:100%;max-width:720px;display:flex;align-items:center;justify-content:flex-end;margin-bottom:4px}
+.btn-x{font-family:'Rajdhani',sans-serif;font-size:22px;font-weight:600;color:rgba(255,255,255,.35);background:none;border:none;
+  cursor:none;padding:8px;transition:color .2s,text-shadow .2s}
+.btn-x:hover{color:#fff;text-shadow:0 0 20px #fff}
+.hero{text-align:center;margin:12px 0 28px}
+.title{font-family:'Rajdhani',sans-serif;font-size:clamp(36px,8vw,56px);font-weight:700;letter-spacing:.35em;
+  color:#fff;text-shadow:0 0 40px rgba(255,255,255,.25),0 0 80px rgba(255,255,255,.08);
+  animation:titlePulse 4s ease-in-out infinite}
+@keyframes titlePulse{0%,100%{opacity:1;filter:brightness(1)}50%{opacity:.92;filter:brightness(1.15)}}
+.sub{font-size:12px;font-weight:600;letter-spacing:.42em;color:rgba(255,255,255,.4);margin-top:10px;font-family:'Rajdhani',sans-serif}
+.card{width:100%;max-width:520px;border:1px solid rgba(255,255,255,.28);background:rgba(0,0,0,.55);
+  backdrop-filter:blur(8px);padding:22px 24px;margin-bottom:20px;animation:fadeUp .7s ease both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+.row{margin-top:14px}
+.lbl{font-size:10px;font-weight:600;letter-spacing:.22em;color:rgba(255,255,255,.4);text-transform:uppercase;margin-bottom:6px;font-family:'Rajdhani',sans-serif}
+.val{font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:500;color:#fff;word-break:break-all}
+.divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);margin:20px 0}
+.product{border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.4);padding:20px 22px;width:100%;max-width:520px;
+  animation:fadeUp .85s ease .12s both}
+.product-name{font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;letter-spacing:.18em;color:#fff}
+.product-desc{font-size:14px;font-weight:500;color:rgba(255,255,255,.5);margin-top:10px;line-height:1.55}
+.actions{width:100%;max-width:520px;margin-top:24px;display:flex;flex-direction:column;gap:12px}
+.btn{font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:600;letter-spacing:.16em;padding:14px 20px;border:1px solid rgba(255,255,255,.45);
+  background:rgba(0,0,0,.6);color:#fff;cursor:none;transition:background .2s,border-color .2s,box-shadow .2s,transform .15s}
+.btn:hover{background:#fff;color:#000;border-color:#fff;box-shadow:0 0 24px rgba(255,255,255,.25)}
+.btn:active{transform:scale(.98)}
+.btn-primary{background:#fff;color:#000;border-color:#fff}
+.btn-primary:hover{background:#000;color:#fff;border-color:#fff;box-shadow:0 0 32px rgba(255,255,255,.3)}
+.btn-primary:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}
+.btn-row{display:flex;gap:10px;flex-wrap:wrap}
+.btn-row .btn{flex:1;min-width:140px}
+.msg{margin-top:14px;font-size:13px;font-weight:500;color:rgba(255,255,255,.55);text-align:center;min-height:1.2em;font-family:'Rajdhani',sans-serif}
+.hint{font-size:12px;font-weight:500;color:rgba(255,255,255,.35);text-align:center;margin-top:18px;max-width:480px;line-height:1.6;font-family:'Rajdhani',sans-serif}
+</style>
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+<div class="noise" aria-hidden="true"></div>
+<div class="scanlines" aria-hidden="true"></div>
+<div class="cursor-dot" id="dot" aria-hidden="true"></div>
+<div class="ui">
+  <div class="hdr">
+    <button type="button" class="btn-x" id="btn-close" title="Выход">✕</button>
+  </div>
+  <div class="hero">
+    <div class="title">NEXUS</div>
+    <div class="sub">NEXUS CURSOR · CLIENT</div>
+  </div>
+  <div class="card" id="card-sub">
+    <div class="lbl">Статус</div>
+    <div class="val" id="line-status">—</div>
+    <div class="row"><div class="lbl">Аккаунт</div><div class="val" id="line-email">—</div></div>
+    <div class="row"><div class="lbl">Действует до</div><div class="val" id="line-ends">—</div></div>
+  </div>
+  <div class="product" id="product-box">
+    <div class="product-name">nexus-cursor</div>
+    <div class="product-desc">Веб-панель и сценарии NEXUS для Cursor — тот же стиль, что и у launcher.py.</div>
+  </div>
+  <div class="actions">
+    <button type="button" class="btn btn-primary" id="btn-launch">ЗАПУСТИТЬ NEXUS-CURSOR</button>
+    <div class="btn-row">
+      <button type="button" class="btn" id="btn-account">КАБИНЕТ</button>
+      <button type="button" class="btn" id="btn-exit">ВЫХОД</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+  <p class="hint" id="hint"></p>
+</div>
+<script type="application/json" id="nx-s">"""
+
+_CLIENT_PANEL_HTML_POST = r"""</script>
+<script>
+(function(){
+const raw=document.getElementById('nx-s').textContent;
+const S=JSON.parse(raw);
+const $=id=>document.getElementById(id);
+$('line-email').textContent=S.email||'—';
+$('line-ends').textContent=S.endsAt||'—';
+$('line-status').textContent=S.hasAccess?'●  ПОДПИСКА АКТИВНА':'○  НЕТ ДОСТУПА';
+const btnLaunch=$('btn-launch');
+btnLaunch.disabled=!S.hasAccess;
+btnLaunch.setAttribute('aria-disabled',S.hasAccess?'false':'true');
+btnLaunch.title=S.hasAccess?'':'Нет активной подписки — запуск недоступен';
+$('hint').textContent=S.hasAccess?'':'Подписка не активна или истекла. Активируй промокод в кабинете или войди в тот же аккаунт, что привязывал устройство. Запуск возможен только при активной подписке.';
+
+const dot=$('dot');
+document.addEventListener('mousemove',e=>{if(dot){dot.style.left=e.clientX+'px';dot.style.top=e.clientY+'px';}});
+
+const cv=$('bg');
+const ctx=cv.getContext('2d');
+let W=0,H=0,fontSize=15,drops=[],mouseX=-1e3,mouseY=-1e3;
+const chars='0101100110011010'.split('');
+function resize(){
+  W=cv.width=innerWidth;H=cv.height=innerHeight;
+  const n=Math.ceil(W/fontSize)+2;
+  drops=[];for(let i=0;i<n;i++)drops[i]=Math.random()*-80;
+}
+function frame(){
+  ctx.fillStyle='rgba(0,0,0,.11)';
+  ctx.fillRect(0,0,W,H);
+  ctx.font=fontSize+'px monospace';
+  for(let i=0;i<drops.length;i++){
+    const x=i*fontSize,y=drops[i]*fontSize;
+    const dx=x-mouseX,dy=y-mouseY,d=Math.sqrt(dx*dx+dy*dy);
+    if(d<140){ctx.fillStyle=`rgba(255,255,255,${1-d/140})`;ctx.shadowBlur=10;ctx.shadowColor='#fff';}
+    else{ctx.fillStyle='rgba(90,90,90,.28)';ctx.shadowBlur=0;}
+    ctx.fillText(chars[(Math.random()*chars.length)|0],x,y);
+    if(y>H&&Math.random()>.97)drops[i]=0;
+    drops[i]+=.85;
+  }
+}
+addEventListener('resize',resize);
+addEventListener('mousemove',e=>{mouseX=e.clientX;mouseY=e.clientY;});
+addEventListener('mouseleave',()=>{mouseX=-1e3;mouseY=-1e3;});
+resize();
+(function loop(){frame();requestAnimationFrame(loop);})();
+
+function post(path,cb){
+  fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+    .then(r=>r.json()).then(d=>cb&&cb(d)).catch(()=>cb&&cb({ok:false,error:'network'}));
+}
+btnLaunch.addEventListener('click',()=>{
+  if(!S.hasAccess){$('msg').textContent='Нет доступа: сначала активируй подписку.';return;}
+  $('msg').textContent='Запуск…';
+  post('/launch',d=>{$('msg').textContent=d.ok?'Готово. Можно закрыть вкладку.':('Ошибка: '+(d.error||''));});
+});
+$('btn-account').addEventListener('click',()=>{window.open(S.accountUrl,'_blank','noopener,noreferrer');});
+$('btn-exit').addEventListener('click',()=>{post('/exit');});
+$('btn-close').addEventListener('click',()=>{post('/exit');});
+addEventListener('beforeunload',()=>{try{navigator.sendBeacon('/bye','');}catch(e){}});
+})();
+</script>
+</body>
+</html>"""
+
+
+def show_nexus_bw_panel(
+    *,
+    has_access: bool,
+    account_email: str | None,
+    subscription_ends_at_iso: str | None,
+    app_url: str,
+) -> LaunchMode | None:
+    """
+    Панель в браузере (localhost), в духе launcher.py: матрица, scanlines, ч/б.
+    Один сценарий «nexus-cursor» → launcher.py. None — выход без запуска.
+    """
+    state = {
+        "hasAccess": bool(has_access),
+        "email": account_email or "",
+        "endsAt": _format_ru_subscription_ends(subscription_ends_at_iso),
+        "accountUrl": f"{app_url.rstrip('/')}/account",
+    }
+    blob = json.dumps(state, ensure_ascii=False).replace("<", "\\u003c")
+    page = (_CLIENT_PANEL_HTML_PRE + blob + _CLIENT_PANEL_HTML_POST).encode("utf-8")
+
+    result: list[LaunchMode | None] = [None]
+    done = threading.Event()
+    server_box: list[http.server.HTTPServer] = []
+
+    def schedule_shutdown() -> None:
+        def _q() -> None:
+            time.sleep(0.08)
+            try:
+                server_box[0].shutdown()
+            except Exception:
+                pass
+
+        threading.Thread(target=_q, daemon=True).start()
+
+    class PanelHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args: object) -> None:
+            pass
+
+        def _json(self, code: int, d: dict[str, Any]) -> None:
+            b = json.dumps(d, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b)
+
+        def _drain_body(self) -> None:
+            n = int(self.headers.get("Content-Length", "0") or 0)
+            if n > 0:
+                self.rfile.read(min(n, 65536))
+
+        def do_GET(self) -> None:
+            if self.path == "/" or self.path.startswith("/?"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(page)
+                return
+            if self.path == "/favicon.ico":
+                self.send_response(204)
+                self.end_headers()
+                return
+            self.send_error(404)
+
+        def do_POST(self) -> None:
+            self._drain_body()
+            path = self.path.split("?", 1)[0]
+            if path == "/launch":
+                if not has_access:
+                    self._json(403, {"ok": False, "error": "no_access"})
+                    return
+                result[0] = "launcher"
+                if not done.is_set():
+                    done.set()
+                    schedule_shutdown()
+                self._json(200, {"ok": True})
+                return
+            if path == "/exit":
+                if result[0] != "launcher":
+                    result[0] = None
+                if not done.is_set():
+                    done.set()
+                    schedule_shutdown()
+                self._json(200, {"ok": True})
+                return
+            if path == "/bye":
+                if not done.is_set():
+                    done.set()
+                    schedule_shutdown()
+                self._json(200, {"ok": True})
+                return
+            self._json(404, {"ok": False, "error": "not_found"})
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), PanelHandler)
+    server_box.append(server)
+    port = server.server_address[1]
+    log(f"NEXUS client panel: http://127.0.0.1:{port}/")
+
+    th = threading.Thread(target=server.serve_forever, daemon=True)
+    th.start()
+    panel_url = f"http://127.0.0.1:{port}/"
+    open_client_panel_app_window(panel_url)
+
+    done.wait()
+    try:
+        server.shutdown()
+    except Exception:
+        pass
+    try:
+        server.server_close()
+    except Exception:
+        pass
+    th.join(timeout=3.0)
+    return result[0]
 
 
 def main():
@@ -582,37 +966,67 @@ def main():
         return 3
 
     if not ok:
-        text = (
-            "Для этого аккаунта на сервере нет активной подписки "
-            "(дата окончания не задана или уже в прошлом).\n\n"
-            "Проверь в кабинете на сайте, что статус ACTIVE и активирован промокод.\n"
-            "Убедись, что в браузере ты вошёл в тот же аккаунт, который подтверждал привязку устройства."
-        )
-        if acct_email:
-            text += f"\n\nАккаунт клиента: {acct_email}"
-        if ends_at:
-            text += f"\n\nДата в базе: {ends_at}"
+        if _env_no_gui():
+            text = (
+                "Для этого аккаунта на сервере нет активной подписки "
+                "(дата окончания не задана или уже в прошлом).\n\n"
+                "Проверь в кабинете на сайте, что статус ACTIVE и активирован промокод.\n"
+                "Убедись, что в браузере ты вошёл в тот же аккаунт, который подтверждал привязку устройства."
+            )
+            if acct_email:
+                text += f"\n\nАккаунт клиента: {acct_email}"
+            if ends_at:
+                text += f"\n\nДата в базе: {ends_at}"
+            else:
+                text += "\n\nВ базе нет даты подписки — активируй промокод в кабинете."
+            text += f"\n\nОткрою страницу кабинета:\n{APP_URL}/account"
+            open_default_browser(f"{APP_URL}/account")
+            _msg("NEXUS", text, 48)
         else:
-            text += "\n\nВ базе нет даты подписки — активируй промокод в кабинете."
-        text += f"\n\nОткрою страницу кабинета:\n{APP_URL}/account"
-        open_default_browser(f"{APP_URL}/account")
-        _msg("NEXUS", text, 48)
+            show_nexus_bw_panel(
+                has_access=False,
+                account_email=acct_email,
+                subscription_ends_at_iso=ends_at if isinstance(ends_at, str) else None,
+                app_url=APP_URL,
+            )
         return 2
 
     if not prep_ok:
         _msg("NEXUS", f"Подписка ок, но подготовка файлов не удалась.\n\n{prep_err}", 16)
         return 1
 
-    log("launch_payload …")
-    launched, details = launch_payload(assume_bundled_files_ready=True)
+    launch_mode: LaunchMode | None
+    if _env_no_gui():
+        launch_mode = "launcher"
+    else:
+        ends_iso = ends_at if isinstance(ends_at, str) else None
+        launch_mode = show_nexus_bw_panel(
+            has_access=True,
+            account_email=acct_email,
+            subscription_ends_at_iso=ends_iso,
+            app_url=APP_URL,
+        )
+
+    if launch_mode is None:
+        log("panel: выход без запуска")
+        return 0
+
+    log(f"launch_payload mode={launch_mode} …")
+    launched, details = launch_payload(
+        assume_bundled_files_ready=True,
+        mode=launch_mode,
+    )
     log(f"launch_payload launched={launched} details={details[:200]!r}")
     if launched:
-        _msg("NEXUS", f"Подписка активна.\n{details}", 64)
+        if _env_no_gui():
+            _msg("NEXUS", f"Подписка активна.\n{details}", 64)
+        else:
+            _msg("NEXUS", f"Запущено.\n{details}", 64)
         return 0
 
     _msg(
         "NEXUS",
-        "Подписка активна, но автозапуск не выполнен.\n\n"
+        "Подписка активна, но запуск не выполнен.\n\n"
         f"{details}",
         48,
     )

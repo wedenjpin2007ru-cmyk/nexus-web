@@ -49,3 +49,7 @@ next-env.d.ts
 /client/build/
 /client/dist/
 /client/app_url.txt
+
+# Python
+**/__pycache__/
+*.py[cod]
