@@ -52,6 +52,49 @@ export default function Home() {
                 связаться с админом”.
               </div>
             </div>
+
+            <div className="rounded-xl border border-white/10 bg-black/35 p-4 text-sm text-white/75">
+              <div className="text-base text-white/90">Краткий гайд</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+                  <div className="text-white/90">Как это работает</div>
+                  <p className="mt-1 text-white/70">
+                    Регистрируешь аккаунт, заходишь в кабинет, активируешь
+                    промокод и получаешь доступ к загрузке клиента на срок
+                    подписки.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+                  <div className="text-white/90">Браузеры</div>
+                  <p className="mt-1 text-white/70">
+                    Рекомендуем Chrome, Edge или Firefox последних версий.
+                    Safari и мобильные браузеры могут работать нестабильно.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+                  <div className="text-white/90">Windows</div>
+                  <p className="mt-1 text-white/70">
+                    Оптимально: Windows 10/11 x64 с обновлениями и обычными
+                    правами пользователя.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/30 p-3">
+                  <div className="text-white/90">Насколько сложно запустить</div>
+                  <p className="mt-1 text-white/70">
+                    Обычно легко: скачать клиент, запустить файл и авторизоваться.
+                    В среднем занимает 2-5 минут.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/30 p-3 sm:col-span-2">
+                  <div className="text-white/90">Что нужно и как получить промо</div>
+                  <p className="mt-1 text-white/70">
+                    Нужны интернет, рабочий аккаунт и промокод. Промокод
+                    выдаёт администратор/поддержка проекта; после получения
+                    активируй его в кабинете в поле ввода промо.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
