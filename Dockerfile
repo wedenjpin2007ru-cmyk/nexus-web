@@ -26,8 +26,7 @@ RUN npm run build
 # Не задавай здесь DATABASE_URL=file:... и не запускай prisma db push в слое сборки:
 # схема Prisma = postgresql, file: даёт P1013. Живой Postgres на этапе build обычно недоступен.
 # Синхронизация БД: Railway preDeploy → node scripts/prisma-sync.cjs и при старте → start-prod.cjs.
-RUN mkdir -p /app/downloads \
-  && (test -f client/dist/Nexus.exe && cp client/dist/Nexus.exe downloads/Nexus.exe || true)
+# Важно: не перезаписывать downloads/Nexus.exe из client/dist при сборке.
 
 ENV NODE_ENV=production
 
