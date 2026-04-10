@@ -13,7 +13,7 @@ import requests
 import ctypes
 
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-12")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-13")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 APP_URL = os.environ.get(
@@ -46,6 +46,16 @@ def _max_http_attempts() -> int:
         return 8
 
 
+def _device_request_timeout() -> tuple[float, float]:
+    """Отдельные таймауты для /api/device/request — один read=120s даёт «тишину» в логе на минуты."""
+    try:
+        c = float(os.environ.get("NEXUS_DEVICE_HTTP_CONNECT", "20"))
+        r = float(os.environ.get("NEXUS_DEVICE_HTTP_READ", "45"))
+    except ValueError:
+        c, r = 20.0, 45.0
+    return (c, r)
+
+
 def _default_headers() -> dict[str, str]:
     return {"User-Agent": "NexusClient/1.0 (Windows)"}
 
@@ -68,11 +78,17 @@ def _request_with_retries(
 
     last_exc: BaseException | None = None
     for attempt in range(attempts):
+        log(
+            f"HTTP {method.upper()} attempt {attempt + 1}/{attempts} "
+            f"timeout={timeout} → {url[:96]}"
+        )
         try:
             r = sess.request(method.upper(), url, timeout=timeout, **kwargs)
             if r.status_code in (500, 502, 503, 504) and attempt < attempts - 1:
+                log(f"HTTP retry status={r.status_code}, sleep…")
                 time.sleep(min(2.0**attempt, 30.0))
                 continue
+            log(f"HTTP OK status={r.status_code}")
             return r
         except (
             requests.exceptions.Timeout,
@@ -81,6 +97,7 @@ def _request_with_retries(
             requests.exceptions.SSLError,
         ) as e:
             last_exc = e
+            log(f"HTTP attempt {attempt + 1} error: {type(e).__name__}: {e!s}")
             if attempt < attempts - 1:
                 time.sleep(min(2.0**attempt, 30.0))
     if last_exc is not None:
@@ -137,7 +154,19 @@ def load_token() -> str | None:
 
 
 def request_device_code(sess: requests.Session) -> tuple[str, str]:
-    r = _request_with_retries(sess, "post", f"{APP_URL}/api/device/request")
+    # Короче таймаут на одну попытку + меньше попыток, чем у «длинных» запросов — иначе первая попытка висит до 120s без новых строк в логе.
+    try:
+        dev_attempts = int(os.environ.get("NEXUS_DEVICE_HTTP_RETRIES", "6"), 10)
+        dev_attempts = max(1, min(dev_attempts, 12))
+    except ValueError:
+        dev_attempts = 6
+    r = _request_with_retries(
+        sess,
+        "post",
+        f"{APP_URL}/api/device/request",
+        timeout=_device_request_timeout(),
+        max_attempts=dev_attempts,
+    )
     r.raise_for_status()
     d = r.json()
     return d["requestId"], d["userCode"]
