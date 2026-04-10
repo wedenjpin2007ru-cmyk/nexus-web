@@ -6,6 +6,7 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 import requests
 import ctypes
@@ -15,6 +16,77 @@ APP_URL = os.environ.get(
     "NEXUS_APP_URL",
     "https://nexus-web-production-d7a0.up.railway.app",
 ).rstrip("/")
+
+# (connect, read) — на Railway первый запрос после сна часто >10s; read тоже поднимаем.
+def _timeouts() -> tuple[float, float]:
+    try:
+        c = float(os.environ.get("NEXUS_HTTP_CONNECT_TIMEOUT", "25"))
+        r = float(os.environ.get("NEXUS_HTTP_READ_TIMEOUT", "120"))
+    except ValueError:
+        c, r = 25.0, 120.0
+    return (c, r)
+
+
+def _poll_read_timeout() -> float:
+    try:
+        return float(os.environ.get("NEXUS_HTTP_POLL_READ_TIMEOUT", "60"))
+    except ValueError:
+        return 60.0
+
+
+def _max_http_attempts() -> int:
+    try:
+        n = int(os.environ.get("NEXUS_HTTP_RETRIES", "8"), 10)
+        return max(1, min(n, 20))
+    except ValueError:
+        return 8
+
+
+def _default_headers() -> dict[str, str]:
+    return {"User-Agent": "NexusClient/1.0 (Windows)"}
+
+
+def _request_with_retries(
+    sess: requests.Session,
+    method: str,
+    url: str,
+    *,
+    timeout: tuple[float, float] | float | None = None,
+    max_attempts: int | None = None,
+    **kwargs: Any,
+) -> requests.Response:
+    """Повторы при таймауте/обрыве/502/503/504 — чтобы холодный деплой и сеть не ломали клиент."""
+    if timeout is None:
+        timeout = _timeouts()
+    attempts = max_attempts if max_attempts is not None else _max_http_attempts()
+    extra_headers = kwargs.pop("headers", None) or {}
+    kwargs["headers"] = {**_default_headers(), **extra_headers}
+
+    last_exc: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            r = sess.request(method.upper(), url, timeout=timeout, **kwargs)
+            if r.status_code in (500, 502, 503, 504) and attempt < attempts - 1:
+                time.sleep(min(2.0**attempt, 30.0))
+                continue
+            return r
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.SSLError,
+        ) as e:
+            last_exc = e
+            if attempt < attempts - 1:
+                time.sleep(min(2.0**attempt, 30.0))
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("HTTP request failed")
+
+
+def make_http_session() -> requests.Session:
+    s = requests.Session()
+    return s
 TOKEN_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "token.json"
 RUNTIME_DIR = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "runtime"
 BUNDLED_RUNTIME_FILES = [
@@ -43,21 +115,37 @@ def load_token() -> str | None:
         return None
 
 
-def request_device_code():
-    r = requests.post(f"{APP_URL}/api/device/request", timeout=10)
+def request_device_code(sess: requests.Session) -> tuple[str, str]:
+    r = _request_with_retries(sess, "post", f"{APP_URL}/api/device/request")
     r.raise_for_status()
     d = r.json()
     return d["requestId"], d["userCode"]
 
 
-def poll_for_token(request_id: str, timeout_s: int = 600):
+def poll_for_token(sess: requests.Session, request_id: str, timeout_s: int = 600):
     start = time.time()
+    poll_timeout = (_timeouts()[0], _poll_read_timeout())
     while time.time() - start < timeout_s:
-        r = requests.post(f"{APP_URL}/api/device/poll", json={"requestId": request_id}, timeout=10)
+        try:
+            r = _request_with_retries(
+                sess,
+                "post",
+                f"{APP_URL}/api/device/poll",
+                json={"requestId": request_id},
+                timeout=poll_timeout,
+                max_attempts=3,
+            )
+        except requests.exceptions.RequestException:
+            time.sleep(2)
+            continue
         if r.status_code >= 400:
             time.sleep(2)
             continue
-        d = r.json()
+        try:
+            d = r.json()
+        except ValueError:
+            time.sleep(2)
+            continue
         status = d.get("status")
         if status == "approved" and d.get("token"):
             return d["token"]
@@ -67,11 +155,12 @@ def poll_for_token(request_id: str, timeout_s: int = 600):
     raise RuntimeError("Timeout")
 
 
-def check_access(token: str):
-    r = requests.get(
+def check_access(sess: requests.Session, token: str):
+    r = _request_with_retries(
+        sess,
+        "get",
         f"{APP_URL}/api/client/me",
         headers={"Authorization": f"Bearer {token}"},
-        timeout=10,
     )
     if r.status_code != 200:
         return False, None
@@ -236,36 +325,27 @@ def launch_payload() -> tuple[bool, str]:
     )
 
 
-def open_url_prefer_chrome(url: str):
-    chrome_candidates = [
-        Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
-        Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
-        Path(os.environ.get("LOCALAPPDATA", "")) / r"Google\Chrome\Application\chrome.exe",
-    ]
-    for chrome_path in chrome_candidates:
-        try:
-            if chrome_path and chrome_path.exists():
-                subprocess.Popen([str(chrome_path), url], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-                return
-        except Exception:
-            pass
-    webbrowser.open(url)
+def open_default_browser(url: str) -> None:
+    """Открыть URL в браузере по умолчанию ОС (как «Открыть в браузере» в Windows)."""
+    try:
+        webbrowser.open(url, new=2)
+    except Exception:
+        pass
 
 
 def main():
+    sess = make_http_session()
     token = load_token()
     if not token:
         try:
-            request_id, user_code = request_device_code()
+            request_id, user_code = request_device_code(sess)
         except Exception as e:
+            open_default_browser(APP_URL)
             _msg("NEXUS", f"Не удалось получить код привязки.\n\n{e}", 16)
             return 1
 
         copy_to_clipboard(user_code)
-        try:
-            open_url_prefer_chrome(f"{APP_URL}/device?code={user_code}")
-        except Exception:
-            pass
+        open_default_browser(f"{APP_URL}/device?code={user_code}")
 
         _msg(
             "NEXUS: Привязка устройства",
@@ -278,13 +358,13 @@ def main():
         )
 
         try:
-            token = poll_for_token(request_id)
+            token = poll_for_token(sess, request_id)
             save_token(token)
         except Exception as e:
             _msg("NEXUS", f"Привязка не завершена.\n\n{e}", 48)
             return 1
 
-    ok, ends_at = check_access(token)
+    ok, ends_at = check_access(sess, token)
     if not ok:
         text = "Подписка не активна или закончилась."
         if ends_at:
