@@ -13,7 +13,7 @@ export default function LoginPage() {
 
           <div className="mt-6 text-sm text-white/70">
             Нет аккаунта?{" "}
-            <Link className="text-white underline" href="/auth/register">
+            <Link className="text-[color:var(--accent)] underline" href="/auth/register">
               Регистрация
             </Link>
           </div>

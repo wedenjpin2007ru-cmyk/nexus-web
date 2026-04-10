@@ -94,7 +94,7 @@ export default function LoginForm() {
       <button
         type="submit"
         disabled={loading}
-        className="mt-2 inline-flex h-11 items-center justify-center rounded-xl bg-white px-5 text-sm font-semibold text-black hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+        className="ui-transition mt-2 inline-flex h-11 items-center justify-center rounded-xl bg-[color:var(--accent)] px-5 text-sm font-semibold text-black hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Входим..." : "Войти"}
       </button>

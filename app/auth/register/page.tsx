@@ -15,13 +15,13 @@ export default function RegisterPage() {
 
           <div className="mt-6 text-sm text-white/70">
             Уже есть аккаунт?{" "}
-            <Link className="text-white underline" href="/auth/login">
+            <Link className="text-[color:var(--accent)] underline" href="/auth/login">
               Войти
             </Link>
           </div>
 
           <div className="mt-8 text-xs text-white/45">
-            После регистрации ты попадёшь в кабинет, где можно активировать
+            После регистрации откроется кабинет, где можно сразу активировать
             промокод.
           </div>
         </div>

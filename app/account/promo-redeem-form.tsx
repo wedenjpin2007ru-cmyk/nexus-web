@@ -53,7 +53,7 @@ export default function PromoRedeemForm() {
         />
         <button
           disabled={loading}
-          className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-5 text-sm font-semibold text-black hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="ui-transition inline-flex h-11 items-center justify-center rounded-xl bg-[color:var(--accent)] px-5 text-sm font-semibold text-black hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "..." : "Активировать"}
         </button>

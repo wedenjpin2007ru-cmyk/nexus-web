@@ -10,41 +10,35 @@ export default function Home() {
               <div>
                 <div className="text-sm text-white/70">NEXUS</div>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-                  Доступ к скрипту по подписке
+                  Быстрый доступ к клиенту по подписке
                 </h1>
               </div>
               <div className="hidden text-right text-sm text-white/60 sm:block">
                 <div>status: online</div>
-                <div>mode: mono</div>
+                <div>delivery: instant</div>
               </div>
             </div>
 
             <p className="max-w-2xl text-white/75">
-              Зарегистрируйся, зайди в аккаунт и активируй промокод — получишь
-              доступ на время действия подписки (например, 7 дней trial).
+              Зарегистрируй аккаунт, активируй промокод и скачай клиент в
+              кабинете. Весь процесс обычно занимает несколько минут.
             </p>
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-white px-5 text-sm font-semibold text-black hover:bg-white/90"
+                className="ui-transition inline-flex h-11 items-center justify-center rounded-xl bg-[color:var(--accent)] px-5 text-sm font-semibold text-black hover:brightness-110"
                 href="/auth/register"
               >
-                Регистрация
+                Начать
               </Link>
               <Link
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-transparent px-5 text-sm font-semibold text-white hover:bg-white/5"
+                className="ui-transition inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-transparent px-5 text-sm font-semibold text-white hover:bg-white/5"
                 href="/auth/login"
               >
                 Вход
               </Link>
               <Link
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-transparent px-5 text-sm font-semibold text-white/80 hover:bg-white/5"
-                href="/account"
-              >
-                Кабинет
-              </Link>
-              <Link
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-transparent px-5 text-sm font-semibold text-white/80 hover:bg-white/5"
+                className="ui-transition inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-transparent px-5 text-sm font-semibold text-white/80 hover:bg-white/5"
                 href="/guide"
               >
                 Гайд
@@ -52,29 +46,48 @@ export default function Home() {
             </div>
 
             <div className="mt-2 rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-              <div className="text-white/85">Подсказка</div>
+              <div className="text-white/85">Как получить доступ</div>
               <div className="mt-1">
-                Если промокода нет — в кабинете будет заглушка “оплата скоро /
-                связаться с админом”.
+                Промокод выдает администратор/поддержка. После активации код
+                сразу откроет скачивание в кабинете.
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-black/35 p-4 text-sm text-white/75">
-              <div className="text-base text-white/90">Нужна инструкция?</div>
-              <div className="mt-1">
-                Мы вынесли подробный гайд в отдельную вкладку: как работает
-                доступ, какие требования к системе, как запускать и где взять
-                промокод.
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-black/25 p-4">
+                <div className="text-sm font-semibold text-white/90">
+                  Стабильный доступ
+                </div>
+                <div className="mt-1 text-sm text-white/70">
+                  Health-check и стабильный деплой на Railway.
+                </div>
               </div>
-              <div className="mt-3">
-                <Link
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-white/20 px-4 text-sm font-semibold text-white hover:bg-white/5"
-                  href="/guide"
-                >
-                  Открыть гайд
-                </Link>
+              <div className="rounded-xl border border-white/10 bg-black/25 p-4">
+                <div className="text-sm font-semibold text-white/90">
+                  Быстрый старт
+                </div>
+                <div className="mt-1 text-sm text-white/70">
+                  Регистрация, промо и загрузка клиента за пару минут.
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/25 p-4">
+                <div className="text-sm font-semibold text-white/90">
+                  Поддержка
+                </div>
+                <div className="mt-1 text-sm text-white/70">
+                  Есть гайд, FAQ и канал связи для быстрых ответов.
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/25 p-4">
+                <div className="text-sm font-semibold text-white/90">
+                  Безопасность
+                </div>
+                <div className="mt-1 text-sm text-white/70">
+                  Доступ привязан к аккаунту и сроку подписки.
+                </div>
               </div>
             </div>
+
           </div>
         </div>
       </div>

@@ -69,7 +69,7 @@ export default async function DownloadPage() {
           <div className="mt-6">
             <a
               href="/api/download/nexus"
-              className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-white px-5 text-sm font-semibold text-black hover:bg-white/90"
+                className="ui-transition inline-flex h-11 w-full items-center justify-center rounded-xl bg-[color:var(--accent)] px-5 text-sm font-semibold text-black hover:brightness-110"
             >
               Скачать Nexus.exe
             </a>

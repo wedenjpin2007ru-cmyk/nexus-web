@@ -70,6 +70,42 @@ export default function GuidePage() {
               получения открой кабинет и активируй код в поле ввода промо.
             </p>
           </section>
+
+          <section className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
+            <h2 className="text-lg text-white/90">FAQ</h2>
+            <div className="mt-3 space-y-3 text-sm text-white/75">
+              <div>
+                <div className="text-white/90">Промокод не активируется</div>
+                <div className="mt-1">
+                  Проверь правильность кода и срок действия. Если ошибка
+                  повторяется, обратись в поддержку.
+                </div>
+              </div>
+              <div>
+                <div className="text-white/90">Не открывается скачивание</div>
+                <div className="mt-1">
+                  Убедись, что подписка активна в кабинете. Если статус
+                  INACTIVE, активируй промокод.
+                </div>
+              </div>
+              <div>
+                <div className="text-white/90">Нужна помощь с запуском</div>
+                <div className="mt-1">
+                  Используй актуальные Windows 10/11 и обнови браузер. Для
+                  быстрого старта следуй шагам в этом гайде.
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
+            <h2 className="text-lg text-white/90">Контакты поддержки</h2>
+            <p className="mt-2 text-sm text-white/75">
+              Если нужна помощь, напиши в поддержку:{" "}
+              <span className="text-[color:var(--accent)]">@nexus_support</span>
+              . В сообщении укажи email аккаунта и кратко опиши проблему.
+            </p>
+          </section>
         </div>
       </div>
     </main>

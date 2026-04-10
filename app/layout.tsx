@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import TopNav from "./components/top-nav";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,8 +15,17 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Nexus",
-  description: "Nexus — доступ к скрипту по подписке и промокодам",
+  description: "Nexus — доступ к клиенту по подписке и промокодам",
   icons: [{ rel: "icon", url: "/app.ico" }],
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "https://nexus-web-production-d7a0.up.railway.app",
+  ),
+  openGraph: {
+    title: "Nexus",
+    description: "Доступ к клиенту по подписке и промокодам.",
+    images: [{ url: "/bg-fallback.png" }],
+    type: "website",
+  },
 };
 
 export default function RootLayout({
@@ -39,7 +49,10 @@ export default function RootLayout({
         >
           <source src="/bg-stars.mp4" type="video/mp4" />
         </video>
-        <div className="site-content flex min-h-full flex-col">{children}</div>
+        <div className="site-content flex min-h-full flex-col">
+          <TopNav />
+          {children}
+        </div>
         <div className="pointer-events-none fixed bottom-3 left-4 z-30 text-xs text-white/75">
           @nexus
         </div>

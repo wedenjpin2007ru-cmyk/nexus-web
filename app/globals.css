@@ -3,6 +3,8 @@
 :root {
   --background: #000000;
   --foreground: #ffffff;
+  --accent: #8be9ff;
+  --accent-soft: rgba(139, 233, 255, 0.14);
 }
 
 @theme inline {
@@ -16,6 +18,9 @@ body {
   background: var(--background);
   color: var(--foreground);
   position: relative;
+  font-feature-settings:
+    "ss01" 1,
+    "cv05" 1;
 }
 
 body::before {
@@ -34,4 +39,23 @@ body::before {
 .site-content {
   position: relative;
   z-index: 10;
+}
+
+.ui-transition {
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+@media (max-width: 900px), (prefers-reduced-motion: reduce), (prefers-reduced-data: reduce) {
+  .bg-video {
+    display: none;
+  }
+
+  body {
+    background: #000 url("/bg-fallback.png") center / cover no-repeat fixed;
+  }
 }
