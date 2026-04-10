@@ -13,13 +13,23 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+function siteMetadataBase(): URL | undefined {
+  const raw = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (!raw) return undefined;
+  try {
+    return new URL(raw.endsWith("/") ? raw : `${raw}/`);
+  } catch {
+    return undefined;
+  }
+}
+
+const metadataBase = siteMetadataBase();
+
 export const metadata: Metadata = {
   title: "Nexus",
   description: "Nexus — доступ к клиенту по подписке и промокодам",
   icons: [{ rel: "icon", url: "/app.ico" }],
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL || "https://nexus-web-production-d7a0.up.railway.app",
-  ),
+  ...(metadataBase ? { metadataBase } : {}),
   openGraph: {
     title: "Nexus",
     description: "Доступ к клиенту по подписке и промокодам.",

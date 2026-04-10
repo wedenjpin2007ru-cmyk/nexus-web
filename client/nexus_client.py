@@ -17,10 +17,75 @@ import ctypes
 CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-13")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
-APP_URL = os.environ.get(
-    "NEXUS_APP_URL",
-    "https://nexus-web-production-d7a0.up.railway.app",
-).rstrip("/")
+# Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
+# переменной NEXUS_APP_URL или файлом nexus_app_url.txt рядом с exe.
+_FALLBACK_APP_URL = "https://nexus-web-production-d7a0.up.railway.app"
+
+
+def _read_app_url_file(path: Path) -> str | None:
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        for line in raw.splitlines():
+            t = line.strip().lstrip("\ufeff")
+            if not t or t.startswith("#"):
+                continue
+            if t.startswith("http://") or t.startswith("https://"):
+                return t.rstrip("/")
+    except Exception:
+        pass
+    return None
+
+
+def resolve_app_url() -> str:
+    env_u = (os.environ.get("NEXUS_APP_URL") or "").strip()
+    if env_u:
+        return env_u.rstrip("/")
+
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        u = _read_app_url_file(Path(meipass) / "app_url.txt")
+        if u:
+            return u
+
+    try:
+        u = _read_app_url_file(Path(sys.executable).resolve().parent / "nexus_app_url.txt")
+        if u:
+            return u
+    except Exception:
+        pass
+
+    try:
+        here = Path(__file__).resolve().parent
+        u = _read_app_url_file(here / "app_url.txt")
+        if u:
+            return u
+    except Exception:
+        pass
+
+    return _FALLBACK_APP_URL.rstrip("/")
+
+
+APP_URL = resolve_app_url()
+
+
+def _railway_dead_domain_hint(resp: requests.Response) -> str | None:
+    try:
+        j = resp.json()
+        if isinstance(j, dict) and j.get("message") == "Application not found":
+            return (
+                "Этот адрес больше не ведёт в твоё приложение на Railway "
+                "(домен сменился или сервис отключён).\n\n"
+                f"Сейчас в клиенте: {APP_URL}\n\n"
+                "Что сделать:\n"
+                "1) Railway → веб-сервис → Settings → Networking — скопируй публичный URL.\n"
+                "2) Создай файл nexus_app_url.txt в одной папке с Nexus.exe "
+                "(одна строка: https://твой-сервис.up.railway.app) и запусти снова.\n"
+                "3) Либо пересобери exe: задай NEXUS_APP_URL или web\\client\\railway_app_url.txt "
+                "(см. railway_app_url.example)."
+            )
+    except Exception:
+        pass
+    return None
 
 # (connect, read) — на Railway первый запрос после сна часто >10s; read тоже поднимаем.
 def _timeouts() -> tuple[float, float]:
@@ -186,7 +251,11 @@ def request_device_code(sess: requests.Session) -> tuple[str, str]:
         timeout=_device_request_timeout(),
         max_attempts=dev_attempts,
     )
-    r.raise_for_status()
+    if not r.ok:
+        hint = _railway_dead_domain_hint(r)
+        if hint:
+            raise RuntimeError(hint)
+        r.raise_for_status()
     d = r.json()
     return d["requestId"], d["userCode"]
 
@@ -434,6 +503,11 @@ def open_default_browser(url: str) -> None:
 def main():
     log(f"=== start v{CLIENT_VERSION} ===")
     log(f"APP_URL={APP_URL}")
+    if APP_URL.rstrip("/") == _FALLBACK_APP_URL.rstrip("/"):
+        log(
+            "WARNING: URL сервера по умолчанию (часто устаревший). "
+            "Задай nexus_app_url.txt рядом с exe или пересобери с актуальным Railway URL."
+        )
     log(f"Лог: {LOG_PATH}")
     # Раньше здесь было блокирующее «Нажми OK» до любых запросов — убрано для мгновенного старта.
     if (

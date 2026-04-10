@@ -1,0 +1,6 @@
+# Скопируй этот файл как railway_app_url.txt (рядом с build_exe.ps1).
+# Оставь одну строку с публичным URL веб-сервиса (без комментариев на той же строке):
+#
+# https://твой-сервис-production-xxxx.up.railway.app
+#
+# URL: Railway → твой сервис (Next.js) → Settings → Networking → Public Networking.
