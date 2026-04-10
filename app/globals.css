@@ -15,6 +15,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  position: relative;
 }
 
 body::before {
@@ -23,9 +24,14 @@ body::before {
   inset: 0;
   background: rgba(0, 0, 0, 0.62);
   pointer-events: none;
+  z-index: 0;
 }
 
-body > * {
+.bg-video {
+  z-index: -1;
+}
+
+.site-content {
   position: relative;
-  z-index: 1;
+  z-index: 10;
 }

@@ -30,7 +30,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-background text-foreground font-mono selection:bg-white selection:text-black">
         <video
-          className="pointer-events-none fixed inset-0 -z-20 h-full w-full object-cover"
+          className="bg-video pointer-events-none fixed inset-0 h-full w-full object-cover"
           autoPlay
           loop
           muted
@@ -39,7 +39,7 @@ export default function RootLayout({
         >
           <source src="/bg-stars.mp4" type="video/mp4" />
         </video>
-        {children}
+        <div className="site-content flex min-h-full flex-col">{children}</div>
         <div className="pointer-events-none fixed bottom-3 left-4 z-30 text-xs text-white/75">
           @nexus
         </div>
