@@ -1,17 +1,15 @@
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { getUserFromRequest } from "@/app/lib/auth";
 
 const navItems = [
   { href: "/", label: "Главная" },
-  { href: "/guide", label: "Гайд" },
-  { href: "/status", label: "Status" },
+  { href: "/guide#faq", label: "FAQ" },
+  { href: "/guide#support", label: "Контакты поддержки" },
   { href: "/account", label: "Кабинет" },
 ];
 
-export default function TopNav() {
-  const pathname = usePathname();
+export default async function TopNav() {
+  const user = await getUserFromRequest();
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-black/45 backdrop-blur-md">
@@ -24,28 +22,23 @@ export default function TopNav() {
         </Link>
 
         <nav className="flex items-center gap-2">
-          {navItems.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`ui-transition inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm ${
-                  active
-                    ? "border-[color:var(--accent)] bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
-                    : "border-white/15 text-white/80 hover:border-white/30 hover:text-white"
-                }`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-          <Link
-            href="/auth/login"
-            className="ui-transition ml-1 inline-flex h-9 items-center justify-center rounded-lg bg-[color:var(--accent)] px-3 text-sm font-semibold text-black hover:brightness-110"
-          >
-            Войти
-          </Link>
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="ui-transition inline-flex h-9 items-center justify-center rounded-lg border border-white/15 px-3 text-sm text-white/80 hover:border-white/30 hover:text-white"
+            >
+              {item.label}
+            </Link>
+          ))}
+          {!user ? (
+            <Link
+              href="/auth/login"
+              className="ui-transition ml-1 inline-flex h-9 items-center justify-center rounded-lg bg-[color:var(--accent)] px-3 text-sm font-semibold text-black hover:brightness-110"
+            >
+              Войти
+            </Link>
+          ) : null}
         </nav>
       </div>
     </header>

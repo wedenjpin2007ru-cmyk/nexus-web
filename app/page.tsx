@@ -37,12 +37,6 @@ export default function Home() {
               >
                 Вход
               </Link>
-              <Link
-                className="ui-transition inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-transparent px-5 text-sm font-semibold text-white/80 hover:bg-white/5"
-                href="/guide"
-              >
-                Гайд
-              </Link>
             </div>
 
             <div className="mt-2 rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">

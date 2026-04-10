@@ -60,6 +60,7 @@ export default function GuidePage() {
               <li>- Стабильный интернет.</li>
               <li>- Аккаунт на сайте.</li>
               <li>- Промокод для активации подписки.</li>
+              <li>- Windows 10/11 x64 и современный браузер.</li>
             </ul>
           </section>
 
@@ -71,7 +72,7 @@ export default function GuidePage() {
             </p>
           </section>
 
-          <section className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
+          <section id="faq" className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
             <h2 className="text-lg text-white/90">FAQ</h2>
             <div className="mt-3 space-y-3 text-sm text-white/75">
               <div>
@@ -95,16 +96,51 @@ export default function GuidePage() {
                   быстрого старта следуй шагам в этом гайде.
                 </div>
               </div>
+              <div>
+                <div className="text-white/90">Сколько устройств можно привязать</div>
+                <div className="mt-1">
+                  Базовый сценарий: один активный доступ на пользователя. Если
+                  меняешь устройство, сначала выйди из клиента и выполни новую
+                  привязку через страницу Device.
+                </div>
+              </div>
+              <div>
+                <div className="text-white/90">Сайт не открывается или грузится долго</div>
+                <div className="mt-1">
+                  Проверь интернет и блокировки сети (VPN/фаервол). Затем
+                  открой страницу позже и попробуй другой браузер.
+                </div>
+              </div>
+              <div>
+                <div className="text-white/90">Что делать при ошибке входа</div>
+                <div className="mt-1">
+                  Убедись, что email и пароль введены без пробелов. Если не
+                  помогает, попробуй восстановить доступ через поддержку.
+                </div>
+              </div>
             </div>
           </section>
 
-          <section className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
+          <section id="support" className="mt-4 rounded-xl border border-white/10 bg-black/30 p-4">
             <h2 className="text-lg text-white/90">Контакты поддержки</h2>
-            <p className="mt-2 text-sm text-white/75">
-              Если нужна помощь, напиши в поддержку:{" "}
-              <span className="text-[color:var(--accent)]">@nexus_support</span>
-              . В сообщении укажи email аккаунта и кратко опиши проблему.
-            </p>
+            <div className="mt-2 space-y-2 text-sm text-white/75">
+              <p>
+                Основной контакт:{" "}
+                <span className="text-[color:var(--accent)]">@nexus_support</span>
+              </p>
+              <p>
+                Чтобы мы ответили быстрее, сразу укажи:
+              </p>
+              <ul className="space-y-1">
+                <li>- email аккаунта;</li>
+                <li>- что именно не работает (вход, промокод, скачивание, запуск);</li>
+                <li>- текст ошибки или скрин;</li>
+                <li>- когда впервые появилась проблема.</li>
+              </ul>
+              <p>
+                Время ответа зависит от нагрузки, но обычно в течение дня.
+              </p>
+            </div>
           </section>
         </div>
       </div>
