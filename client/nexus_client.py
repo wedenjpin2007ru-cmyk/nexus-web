@@ -6,6 +6,7 @@ import sys
 import time
 import traceback
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,24 @@ def _max_http_attempts() -> int:
         return max(1, min(n, 20))
     except ValueError:
         return 8
+
+
+def _check_access_timeouts() -> tuple[float, float]:
+    """Короче, чем общие HTTP — /api/client/me должен отвечать быстро; длинные 120s только тянут старт."""
+    try:
+        c = float(os.environ.get("NEXUS_ME_HTTP_CONNECT", "12"))
+        r = float(os.environ.get("NEXUS_ME_HTTP_READ", "35"))
+    except ValueError:
+        c, r = 12.0, 35.0
+    return (c, r)
+
+
+def _check_access_max_attempts() -> int:
+    try:
+        n = int(os.environ.get("NEXUS_ME_HTTP_RETRIES", "5"), 10)
+        return max(1, min(n, 10))
+    except ValueError:
+        return 5
 
 
 def _device_request_timeout() -> tuple[float, float]:
@@ -212,6 +231,8 @@ def check_access(sess: requests.Session, token: str):
         "get",
         f"{APP_URL}/api/client/me",
         headers={"Authorization": f"Bearer {token}"},
+        timeout=_check_access_timeouts(),
+        max_attempts=_check_access_max_attempts(),
     )
     if r.status_code != 200:
         err = ""
@@ -307,17 +328,29 @@ def find_existing_file(name: str) -> Path | None:
     return None
 
 
-def launch_payload() -> tuple[bool, str]:
+def prepare_bundled_runtime() -> tuple[bool, str]:
+    """Копирует встроенные файлы в RUNTIME_DIR. Можно гонять параллельно с check_access."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if not meipass:
+        return True, ""
+    try:
+        RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        for file_name in BUNDLED_RUNTIME_FILES:
+            src = Path(meipass) / file_name
+            if src.exists() and src.is_file():
+                shutil.copy2(src, RUNTIME_DIR / file_name)
+        return True, ""
+    except Exception as e:
+        return False, f"Не удалось распаковать встроенные файлы: {e}"
+
+
+def launch_payload(*, assume_bundled_files_ready: bool = False) -> tuple[bool, str]:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        try:
-            RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-            for file_name in BUNDLED_RUNTIME_FILES:
-                src = Path(meipass) / file_name
-                if src.exists() and src.is_file():
-                    shutil.copy2(src, RUNTIME_DIR / file_name)
-        except Exception as e:
-            return False, f"Не удалось распаковать встроенные файлы: {e}"
+        if not assume_bundled_files_ready:
+            ok, err = prepare_bundled_runtime()
+            if not ok:
+                return False, err
 
         bundled_cmd = RUNTIME_DIR / "run_fsociety.cmd"
         if bundled_cmd.exists():
@@ -401,12 +434,16 @@ def open_default_browser(url: str) -> None:
 def main():
     log(f"=== start v{CLIENT_VERSION} ===")
     log(f"APP_URL={APP_URL}")
-    if os.environ.get("NEXUS_QUIET") != "1":
+    log(f"Лог: {LOG_PATH}")
+    # Раньше здесь было блокирующее «Нажми OK» до любых запросов — убрано для мгновенного старта.
+    if (
+        os.environ.get("NEXUS_QUIET") != "1"
+        and os.environ.get("NEXUS_SHOW_START_MSG") == "1"
+    ):
         _msg(
             "NEXUS",
             f"Клиент {CLIENT_VERSION}\n\n"
-            "Подключение к серверу (до ~2 мин при холодном старте).\n"
-            "Нажми OK и подожди следующее окно.\n\n"
+            "Идёт проверка подписки и подготовка файлов.\n\n"
             f"Лог: {LOG_PATH}",
             64,
         )
@@ -448,12 +485,17 @@ def main():
             _msg("NEXUS", f"Привязка не завершена.\n\n{e}", 48)
             return 1
 
-    log("check_access …")
-    ok, ends_at, http_st, api_err, acct_email = check_access(sess, token)
+    log("check_access + prepare_bundled_runtime (parallel) …")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fut_check = pool.submit(check_access, sess, token)
+        fut_prep = pool.submit(prepare_bundled_runtime)
+        ok, ends_at, http_st, api_err, acct_email = fut_check.result()
+        prep_ok, prep_err = fut_prep.result()
     log(
         f"check_access ok={ok} ends_at={ends_at!r} http={http_st} "
         f"api_err={api_err!r} email={acct_email!r}"
     )
+    log(f"prepare_bundled_runtime ok={prep_ok} err={prep_err!r}")
     if http_st != 200:
         text = (
             f"Токен клиента отклонён сервером (HTTP {http_st}).\n"
@@ -483,8 +525,12 @@ def main():
         _msg("NEXUS", text, 48)
         return 2
 
+    if not prep_ok:
+        _msg("NEXUS", f"Подписка ок, но подготовка файлов не удалась.\n\n{prep_err}", 16)
+        return 1
+
     log("launch_payload …")
-    launched, details = launch_payload()
+    launched, details = launch_payload(assume_bundled_files_ready=True)
     log(f"launch_payload launched={launched} details={details[:200]!r}")
     if launched:
         _msg("NEXUS", f"Подписка активна.\n{details}", 64)

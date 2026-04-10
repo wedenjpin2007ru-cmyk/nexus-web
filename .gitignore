@@ -44,3 +44,7 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
+
+# PyInstaller (exe кладём в downloads/, не в dist)
+/client/build/
+/client/dist/
