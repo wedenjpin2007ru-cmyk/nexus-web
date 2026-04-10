@@ -19,7 +19,7 @@ LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 # Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
 # переменной NEXUS_APP_URL или файлом nexus_app_url.txt рядом с exe.
-_FALLBACK_APP_URL = "https://nexus-web-production-d7a0.up.railway.app"
+_FALLBACK_APP_URL = "https://nexus-web-production-13f1.up.railway.app"
 
 
 def _read_app_url_file(path: Path) -> str | None:
