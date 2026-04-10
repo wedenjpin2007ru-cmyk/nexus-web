@@ -589,6 +589,10 @@ def open_client_panel_app_window(url: str) -> bool:
 
 
 def _env_no_gui() -> bool:
+    # В PyInstaller EXE не уважаем NEXUS_NO_GUI: иначе случайная системная переменная
+    # или старый тест отключают панель — остаётся только MessageBox и сразу run_fsociety.cmd.
+    if getattr(sys, "frozen", False):
+        return False
     return os.environ.get("NEXUS_NO_GUI", "").strip().lower() in ("1", "true", "yes", "on")
 
 
@@ -893,6 +897,13 @@ def main():
             "Задай nexus_app_url.txt рядом с exe или пересобери с актуальным Railway URL."
         )
     log(f"Лог: {LOG_PATH}")
+    if getattr(sys, "frozen", False):
+        nog = (os.environ.get("NEXUS_NO_GUI") or "").strip()
+        if nog:
+            log(
+                "EXE: NEXUS_NO_GUI в среде игнорируется — всегда показываем веб-панель "
+                f"(в среде было: {nog!r})."
+            )
     # Раньше здесь было блокирующее «Нажми OK» до любых запросов — убрано для мгновенного старта.
     if (
         os.environ.get("NEXUS_QUIET") != "1"
