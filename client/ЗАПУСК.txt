@@ -1,0 +1,8 @@
+Как открыть NEXUS (панель в браузере):
+
+1) NEXUS.vbs  — без чёрного окна (удобнее всего).
+2) NEXUS.cmd  — кратко может мелькнуть окно, пока ставятся зависимости.
+
+Нужен установленный Python с python.org с галочкой «Add python.exe to PATH».
+
+Папка: client (здесь лежат NEXUS.cmd, NEXUS.vbs, nexus_client.py).
