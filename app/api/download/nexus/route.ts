@@ -8,6 +8,7 @@ const DOWNLOAD_EXE_PATH = path.join(
   "downloads",
   "Nexus.exe",
 );
+const DOWNLOAD_VERSION = "2026-04-10";
 
 export async function GET() {
   const user = await getUserFromRequest();
@@ -38,10 +39,11 @@ export async function GET() {
   return new NextResponse(new Uint8Array(buf) as BodyInit, {
     headers: {
       "content-type": "application/octet-stream",
-      "content-disposition": "attachment; filename=\"Nexus.exe\"",
+      "content-disposition": `attachment; filename="Nexus-${DOWNLOAD_VERSION}.exe"`,
       "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate",
       pragma: "no-cache",
       expires: "0",
+      "x-nexus-download-version": DOWNLOAD_VERSION,
     },
   });
 }
