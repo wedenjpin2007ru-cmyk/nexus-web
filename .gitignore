@@ -48,7 +48,6 @@ next-env.d.ts
 # PyInstaller (exe кладём в downloads/, не в dist)
 /client/build/
 /client/dist/
-/client/app_url.txt
 
 # Python
 **/__pycache__/
