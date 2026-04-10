@@ -47,7 +47,7 @@ export default function RootLayout({
           playsInline
           preload="auto"
         >
-          <source src="/bg-stars.mp4" type="video/mp4" />
+          <source src="/fon.mp4" type="video/mp4" />
         </video>
         <div className="site-content flex min-h-full flex-col">
           <TopNav />

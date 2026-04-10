@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getUserFromRequest } from "@/app/lib/auth";
+import LogoutButton from "./logout-button";
 import PromoRedeemForm from "./promo-redeem-form";
 
 function formatDate(dt: Date) {
@@ -58,11 +59,7 @@ export default async function AccountPage() {
               </h1>
               <div className="mt-2 text-sm text-white/70">{user.email}</div>
             </div>
-            <form action="/api/auth/logout" method="post">
-              <button className="inline-flex h-10 items-center justify-center rounded-xl border border-white/20 bg-transparent px-4 text-sm font-semibold text-white/85 hover:bg-white/5">
-                Выйти
-              </button>
-            </form>
+            <LogoutButton />
           </div>
 
           <div className="mt-8 grid gap-4">
