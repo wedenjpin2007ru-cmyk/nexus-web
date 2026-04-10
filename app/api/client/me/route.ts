@@ -10,7 +10,10 @@ export async function GET(req: Request) {
   const tokenHash = sha256Hex(token);
   const t = await prisma.apiToken.findUnique({
     where: { tokenHash },
-    select: { revokedAt: true, user: { select: { id: true, isBanned: true, subscriptionEndsAt: true } } },
+    select: {
+      revokedAt: true,
+      user: { select: { id: true, email: true, isBanned: true, subscriptionEndsAt: true } },
+    },
   });
   if (!t || t.revokedAt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (t.user.isBanned) return NextResponse.json({ error: "Banned" }, { status: 403 });
@@ -27,6 +30,7 @@ export async function GET(req: Request) {
     ok: true,
     hasAccess,
     subscriptionEndsAt: t.user.subscriptionEndsAt?.toISOString() ?? null,
+    email: t.user.email,
   });
 }
 

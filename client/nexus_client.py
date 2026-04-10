@@ -13,7 +13,7 @@ import requests
 import ctypes
 
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-12")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 APP_URL = os.environ.get(
@@ -177,6 +177,7 @@ def poll_for_token(sess: requests.Session, request_id: str, timeout_s: int = 600
 
 
 def check_access(sess: requests.Session, token: str):
+    """Возвращает (has_access, subscription_ends_at_iso|None, http_status, api_error_text, account_email|None)."""
     r = _request_with_retries(
         sess,
         "get",
@@ -184,9 +185,21 @@ def check_access(sess: requests.Session, token: str):
         headers={"Authorization": f"Bearer {token}"},
     )
     if r.status_code != 200:
-        return False, None
+        err = ""
+        try:
+            j = r.json()
+            if isinstance(j, dict) and j.get("error"):
+                err = str(j["error"])
+        except Exception:
+            err = (r.text or "")[:300]
+        return False, None, r.status_code, err, None
+
     d = r.json()
-    return bool(d.get("hasAccess")), d.get("subscriptionEndsAt")
+    if not isinstance(d, dict):
+        return False, None, r.status_code, "bad_json", None
+    email = d.get("email")
+    acc_email = email if isinstance(email, str) and email else None
+    return bool(d.get("hasAccess")), d.get("subscriptionEndsAt"), 200, "", acc_email
 
 
 def _msg(title: str, text: str, icon: int = 0):
@@ -407,12 +420,37 @@ def main():
             return 1
 
     log("check_access …")
-    ok, ends_at = check_access(sess, token)
-    log(f"check_access ok={ok} ends_at={ends_at!r}")
+    ok, ends_at, http_st, api_err, acct_email = check_access(sess, token)
+    log(
+        f"check_access ok={ok} ends_at={ends_at!r} http={http_st} "
+        f"api_err={api_err!r} email={acct_email!r}"
+    )
+    if http_st != 200:
+        text = (
+            f"Токен клиента отклонён сервером (HTTP {http_st}).\n"
+            f"{api_err}\n\n"
+            "Часто это значит: сессия сброшена или привязка устарела.\n"
+            f"Удали файл:\n{TOKEN_PATH}\n"
+            "и запусти Nexus снова (заново привяжи устройство на сайте)."
+        )
+        _msg("NEXUS", text, 16)
+        return 3
+
     if not ok:
-        text = "Подписка не активна или закончилась."
+        text = (
+            "Для этого аккаунта на сервере нет активной подписки "
+            "(дата окончания не задана или уже в прошлом).\n\n"
+            "Проверь в кабинете на сайте, что статус ACTIVE и активирован промокод.\n"
+            "Убедись, что в браузере ты вошёл в тот же аккаунт, который подтверждал привязку устройства."
+        )
+        if acct_email:
+            text += f"\n\nАккаунт клиента: {acct_email}"
         if ends_at:
-            text += f"\nДоступ был до: {ends_at}"
+            text += f"\n\nДата в базе: {ends_at}"
+        else:
+            text += "\n\nВ базе нет даты подписки — активируй промокод в кабинете."
+        text += f"\n\nОткрою страницу кабинета:\n{APP_URL}/account"
+        open_default_browser(f"{APP_URL}/account")
         _msg("NEXUS", text, 48)
         return 2
 
