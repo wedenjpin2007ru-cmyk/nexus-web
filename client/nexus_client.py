@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,9 @@ from typing import Any
 import requests
 import ctypes
 
+
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11")
+LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 APP_URL = os.environ.get(
     "NEXUS_APP_URL",
@@ -87,6 +91,23 @@ def _request_with_retries(
 def make_http_session() -> requests.Session:
     s = requests.Session()
     return s
+
+
+def log(msg: str) -> None:
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(f"{ts} {msg}\n")
+    except Exception:
+        pass
+
+
+def log_exc(prefix: str, e: BaseException) -> None:
+    log(f"{prefix}: {e!r}")
+    log(traceback.format_exc())
+
+
 TOKEN_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "token.json"
 RUNTIME_DIR = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "runtime"
 BUNDLED_RUNTIME_FILES = [
@@ -171,7 +192,9 @@ def check_access(sess: requests.Session, token: str):
 def _msg(title: str, text: str, icon: int = 0):
     # icon: 0=info, 16=error, 48=warning, 64=info
     try:
-        ctypes.windll.user32.MessageBoxW(None, text, title, icon)
+        log(f"msg {title}: {text[:500]}")
+        MB_SETFOREGROUND = 0x00010000
+        ctypes.windll.user32.MessageBoxW(None, text, title, icon | MB_SETFOREGROUND)
     except Exception:
         pass
 
@@ -334,12 +357,28 @@ def open_default_browser(url: str) -> None:
 
 
 def main():
+    log(f"=== start v{CLIENT_VERSION} ===")
+    log(f"APP_URL={APP_URL}")
+    if os.environ.get("NEXUS_QUIET") != "1":
+        _msg(
+            "NEXUS",
+            f"Клиент {CLIENT_VERSION}\n\n"
+            "Подключение к серверу (до ~2 мин при холодном старте).\n"
+            "Нажми OK и подожди следующее окно.\n\n"
+            f"Лог: {LOG_PATH}",
+            64,
+        )
+
     sess = make_http_session()
     token = load_token()
+    log(f"has_saved_token={bool(token)}")
     if not token:
         try:
+            log("request_device_code …")
             request_id, user_code = request_device_code(sess)
+            log("request_device_code ok")
         except Exception as e:
+            log_exc("request_device_code", e)
             open_default_browser(APP_URL)
             _msg("NEXUS", f"Не удалось получить код привязки.\n\n{e}", 16)
             return 1
@@ -358,13 +397,18 @@ def main():
         )
 
         try:
+            log("poll_for_token …")
             token = poll_for_token(sess, request_id)
             save_token(token)
+            log("poll_for_token ok")
         except Exception as e:
+            log_exc("poll_for_token", e)
             _msg("NEXUS", f"Привязка не завершена.\n\n{e}", 48)
             return 1
 
+    log("check_access …")
     ok, ends_at = check_access(sess, token)
+    log(f"check_access ok={ok} ends_at={ends_at!r}")
     if not ok:
         text = "Подписка не активна или закончилась."
         if ends_at:
@@ -372,7 +416,9 @@ def main():
         _msg("NEXUS", text, 48)
         return 2
 
+    log("launch_payload …")
     launched, details = launch_payload()
+    log(f"launch_payload launched={launched} details={details[:200]!r}")
     if launched:
         _msg("NEXUS", f"Подписка активна.\n{details}", 64)
         return 0
@@ -387,5 +433,16 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        code = main()
+        log(f"exit {code}")
+    except Exception as e:
+        log_exc("fatal", e)
+        _msg(
+            "NEXUS",
+            f"Критическая ошибка:\n{e}\n\nЛог:\n{LOG_PATH}",
+            16,
+        )
+        code = 1
+    raise SystemExit(code)
 
