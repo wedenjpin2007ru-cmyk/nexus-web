@@ -18,7 +18,7 @@ import ctypes
 
 LaunchMode = Literal["auto", "cmd", "launcher"]
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11e")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11f")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 # Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
@@ -401,8 +401,8 @@ def find_existing_file(name: str) -> Path | None:
     return None
 
 
-def _launcher_subprocess_creationflags() -> int:
-    """Из терминала (WT/CMD) — лаунчер в той же сессии; из GUI exe — без лишнего чёрного окна."""
+def _nexus_launch_console_flags() -> int:
+    """Один видимый терминал с логом Full Automation: из Nexus.exe открываем ровно одно CMD/консоль (CREATE_NEW_CONSOLE), без скрытых cmd и лишних окон."""
     if os.name != "nt":
         return 0
     try:
@@ -410,7 +410,7 @@ def _launcher_subprocess_creationflags() -> int:
             return 0
     except Exception:
         pass
-    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
 
 
 def prepare_bundled_runtime() -> tuple[bool, str]:
@@ -454,7 +454,7 @@ def launch_payload(
                     subprocess.Popen(
                         ["cmd", "/c", str(bundled_cmd)],
                         cwd=str(RUNTIME_DIR),
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        creationflags=_nexus_launch_console_flags(),
                     )
                     return True, f"Запущен {bundled_cmd.name} (встроенный пакет)"
                 except Exception as e:
@@ -462,7 +462,7 @@ def launch_payload(
 
         if allow_launcher:
             bundled_py = RUNTIME_DIR / "launcher.py"
-            _lf = _launcher_subprocess_creationflags()
+            _lf = _nexus_launch_console_flags()
             if bundled_py.exists():
                 try:
                     subprocess.Popen(
@@ -489,7 +489,7 @@ def launch_payload(
                 subprocess.Popen(
                     ["cmd", "/c", str(cmd_file)],
                     cwd=str(cmd_file.parent),
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    creationflags=_nexus_launch_console_flags(),
                 )
                 return True, f"Запущен {cmd_file.name}"
             except Exception as e:
@@ -498,7 +498,7 @@ def launch_payload(
     if allow_launcher:
         py_file = find_existing_file("launcher.py")
         if py_file:
-            _lf = _launcher_subprocess_creationflags()
+            _lf = _nexus_launch_console_flags()
             py_cmd = ["py", str(py_file)]
             try:
                 subprocess.Popen(

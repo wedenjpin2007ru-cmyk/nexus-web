@@ -122,6 +122,35 @@ def _fa_progress_ln(pct: int, message: str) -> None:
     _fa_progress(pct, message)
 
 
+_fa_live_line_active = False
+
+
+def _fa_progress_live(pct: int, message: str) -> None:
+    """Одна строка с \\r — живой прогресс при длительном ожидании (без спама пустыми строками)."""
+    global _fa_live_line_active
+    pct = max(0, min(100, int(pct)))
+    msg = (message or "").replace("\r", " ").replace("\n", " ")[:62]
+    line = f"  {_fa_bar(pct)} {pct:3d}%  {msg}"
+    try:
+        sys.stdout.write("\r" + line.ljust(88)[:88])
+        sys.stdout.flush()
+        _fa_live_line_active = True
+    except Exception:
+        pass
+
+
+def _fa_progress_live_end() -> None:
+    global _fa_live_line_active
+    if not _fa_live_line_active:
+        return
+    try:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    except Exception:
+        pass
+    _fa_live_line_active = False
+
+
 def _fa_report_banner():
     try:
         sys.stdout.write(
@@ -186,6 +215,8 @@ def run_powershell_in_automation_console(script_text: str) -> int:
             1,
         )
         return 0
+    env_ps = os.environ.copy()
+    env_ps.setdefault("PYTHONUNBUFFERED", "1")
     r = subprocess.run(
         [
             "powershell.exe",
@@ -196,6 +227,7 @@ def run_powershell_in_automation_console(script_text: str) -> int:
             tmp_ps,
         ],
         cwd=BASE_DIR,
+        env=env_ps,
     )
     return int(r.returncode or 0)
 
@@ -211,10 +243,50 @@ def _win_has_console_hwnd():
         return False
 
 
+_shared_console_lock = threading.Lock()
+
+
+def _ensure_shared_child_console():
+    """
+    После FreeConsole (двойной клик / pythonw) у лаунчера нет консоли — каждый Popen с
+    CREATE_NEW_CONSOLE открывал ОТДЕЛЬНОЕ окно CMD для Mailbox/Cursor.
+    Создаём ОДНО окно консоли процесса и привязываем stdout; дальше все дети пишут сюда же.
+    """
+    if os.name != "nt":
+        return False
+    with _shared_console_lock:
+        if _win_has_console_hwnd():
+            return True
+        try:
+            import ctypes
+
+            k32 = ctypes.windll.kernel32
+            if not k32.AllocConsole():
+                return False
+            conout = open(
+                "CONOUT$",
+                "w",
+                encoding="utf-8",
+                errors="replace",
+                newline="",
+            )
+            sys.stdout = conout
+            sys.stderr = conout
+            sys.stdout.write(
+                "\n  [NEXUS] Одна консоль для Mailbox / Cursor / логов — смотри вывод ниже.\n\n"
+            )
+            sys.stdout.flush()
+            return True
+        except Exception:
+            return False
+
+
 def _popen_console_flags():
-    """Дочерние Python-скрипты пишут в тот же терминал, если лаунчер запущен из WT/CMD."""
+    """Дочерние скрипты — в ту же консоль, что и лаунчер; при отсутствии — одна AllocConsole на всех."""
     if os.name != "nt":
         return {}
+    if not _win_has_console_hwnd():
+        _ensure_shared_child_console()
     if _win_has_console_hwnd():
         return {"creationflags": 0}
     return {"creationflags": subprocess.CREATE_NEW_CONSOLE}
@@ -425,6 +497,10 @@ try {
             $global:__nexus_yes_index++
             return "yes"
         }
+        if ($p -match "(?i)login" -or $p -match "(?i)sign\s*in" -or $p -match "(?i)войти" -or $p -match "(?i)логин") {
+            $global:__nexus_yes_index++
+            return "yes"
+        }
         return & $global:__nexus_original_read_host $Prompt
     }
 } catch {}
@@ -521,14 +597,13 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
 
         mtime0 = _accounts_mtime()
         tick = 28
-        _last_rep = 0.0
+        mb_wait_start = time.time()
         while mailbox_proc.poll() is None:
             time.sleep(0.45)
             tick = min(52, tick + 1)
-            now = time.time()
-            if now - _last_rep >= 4.0:
-                _last_rep = now
-                _fa_progress(tick, "Этап 2/4: регистрация почты ещё выполняется…")
+            elapsed = int(time.time() - mb_wait_start)
+            _fa_progress_live(tick, f"Этап 2/4: почта… ~{elapsed}s")
+        _fa_progress_live_end()
         mailbox_rc = mailbox_proc.wait()
         if mailbox_rc != 0:
             add_log(f"mailbox_register exit {mailbox_rc}", "ERROR")
@@ -559,8 +634,11 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         add_log("Pause 12s: mailbox IMAP / sync…", "INFO")
         for sec in range(12):
             time.sleep(1.0)
-            if sec % 3 == 0 or sec == 11:
-                _fa_progress(58 + sec // 2, f"Этап 3/4: IMAP… {sec + 1}/12 с")
+            _fa_progress_live(
+                min(71, 58 + sec),
+                f"Этап 3/4: IMAP… {sec + 1}/12 с",
+            )
+        _fa_progress_live_end()
 
         save_automation_state(latest_email, DEFAULT_ACCOUNT_PASSWORD)
         add_log(f"Saved automation state for {latest_email}", "OK")
@@ -983,18 +1061,19 @@ input,textarea,button{
     <div style="display:flex;flex-direction:column;gap:14px;max-width:760px;margin:0 auto;width:100%;padding-top:4px">
       <div style="font-family:Orbitron,monospace;font-size:10px;letter-spacing:3px;color:#b266ff66">// FULL AUTOMATION FLOW</div>
       <div style="font-size:10px;color:#555;line-height:1.8">
-        0) Сначала окно: вставь PowerShell-скрипт или нажми ✕ чтобы без PS<br>
-        1) При запуске со скриптом — PowerShell от администратора с этим текстом; пустое поле — пустое окно Admin PS<br>
-        2) Зарегистрировать mailbox.org (пароль: Artemka228zxc)<br>
-        3) Запомнить созданную почту и пароль<br>
-        4) Запустить регистрацию Cursor на эту же почту и пароль<br>
-        5) При необходимости открыть Cursor вручную (из панели или с диска); авто-открытие: переменная NEXUS_OPEN_CURSOR_AFTER_AUTO=1<br>
-        6) После полной регистрации: в первом Cursor нажми Log in, скопируй всю ссылку, открой ее в браузере где регистрировался, нажми Enter и затем Yes, Log in
+        0) Окно Full Automation: вставь PowerShell или ✕ без PS<br>
+        1) Скрипт PS выполняется в той же чёрной консоли, что и Mailbox + Cursor (одно окно логов)<br>
+        2) Mailbox.org — Brave отдельно; текст почты и шаги — в этой же консоли<br>
+        3) Пароль по умолчанию: Artemka228zxc<br>
+        4) Cursor — вывод туда же<br>
+        5) NEXUS_OPEN_CURSOR_AFTER_AUTO=1 — открыть приложение Cursor после цепочки<br>
+        6) Log in в Cursor → скопировать ссылку → браузер регистрации → Enter → Yes / Log in
       </div>
       <button onclick="openFullAutomationModal(this)" style="align-self:flex-start;padding:10px 18px;background:transparent;border:1px solid #b266ff55;border-radius:8px;color:#b266ff;font-family:Orbitron,monospace;font-size:8px;letter-spacing:2px;cursor:none;transition:all .2s" onmouseenter="this.style.background='#1f1230';this.style.borderColor='#b266ff';this.style.boxShadow='0 0 20px #b266ff33'" onmouseleave="this.style.background='transparent';this.style.borderColor='#b266ff55';this.style.boxShadow='none'">⚡ START AUTOMATION</button>
       <div style="font-size:9px;color:#2a2a2a;line-height:1.7">
-        Текст для вставки можно держать в файле <span style="color:#b266ff66;font-family:Courier New,monospace">FULL_AUTOMATION_POWERSHELL.txt</span> в папке NEXUS.<br>
-        После успешной регистрации mailbox окно само закроется через 5 секунд, затем запустится Cursor. Окно PowerShell (Admin) остаётся отдельным процессом — при закрытии NEXUS оно не пропадёт.
+        Текст для вставки: <span style="color:#b266ff66;font-family:Courier New,monospace">FULL_AUTOMATION_POWERSHELL.txt</span> — можно <a href="/download/FULL_AUTOMATION_POWERSHELL.txt" download style="color:#b266ff">скачать с сайта</a>.<br>
+        Запуск с ПК (одно окно CMD → PowerShell → NEXUS): <a href="/download/run_fsociety.cmd" download style="color:#b266ff">run_fsociety.cmd</a> · <a href="/download/run_fsociety.ps1" download style="color:#b266ff">run_fsociety.ps1</a><br>
+        Кнопка «REGISTER MAILBOX» с сайта: если лаунчер без консоли, откроется одно окно терминала на все задачи — лог mailbox и cursor идёт туда же (не отдельные CMD на каждый запуск).
       </div>
     </div>
   </div>
@@ -1452,6 +1531,43 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._resp(200, 'application/json', body)
 
     def do_GET(self):
+        if self.path.startswith('/download/'):
+            from urllib.parse import unquote
+
+            raw = self.path.split('?', 1)[0]
+            name = unquote(raw[len('/download/') :]).strip().replace('\\', '/')
+            if '/' in name or name.startswith('..') or not name:
+                self._resp(400, 'text/plain;charset=utf-8', b'Invalid path')
+                return
+            allowed = (
+                'run_fsociety.cmd',
+                'run_fsociety.ps1',
+                'FULL_AUTOMATION_POWERSHELL.txt',
+            )
+            if name not in allowed:
+                self._resp(404, 'text/plain;charset=utf-8', b'Not allowed')
+                return
+            fpath = os.path.join(BASE_DIR, name)
+            if not os.path.isfile(fpath):
+                self._resp(404, 'text/plain;charset=utf-8', b'File not found')
+                return
+            try:
+                with open(fpath, 'rb') as f:
+                    data = f.read()
+            except OSError:
+                self._resp(500, 'text/plain;charset=utf-8', b'Read error')
+                return
+            self.send_response(200)
+            self.send_header('Content-type', 'application/octet-stream')
+            self.send_header(
+                'Content-Disposition',
+                f'attachment; filename="{name}"',
+            )
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         if self.path == '/bg.gif':
             if os.path.exists(BG_GIF_FILE):
                 try:
@@ -1526,15 +1642,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                '--mail-pass', mail_pass]
                     else:
                         cmd = [py, CURSOR_SCRIPT, '--action', 'delete']
-                    subprocess.Popen(cmd, cwd=BASE_DIR, **_popen_console_flags())
+                    subprocess.Popen(
+                        cmd,
+                        cwd=BASE_DIR,
+                        env=_fa_child_env(),
+                        **_popen_console_flags(),
+                    )
                     ok = True
                 else: error = 'cursor.py not found!'
 
             elif action == 'mailbox_register':
                 if os.path.exists(MAILBOX_SCRIPT):
                     py_exe = get_console_python_exe()
-                    env_mb = os.environ.copy()
-                    env_mb["NEXUS_ACCOUNTS_FILE"] = ACCOUNTS_FILE
+                    env_mb = _fa_child_env({"NEXUS_ACCOUNTS_FILE": ACCOUNTS_FILE})
                     subprocess.Popen(
                         [py_exe, MAILBOX_SCRIPT, "--auto-close"],
                         cwd=BASE_DIR,
@@ -1648,10 +1768,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # Запускаем скрипт авто-логина в mailbox
                     mailbox_login = os.path.join(BASE_DIR, 'mailbox_login.py')
                     if os.path.exists(mailbox_login):
-                        cmd = [sys.executable, mailbox_login,
+                        py_lm = get_console_python_exe()
+                        cmd = [py_lm, mailbox_login,
                                '--email', email_,
                                '--password', password]
-                        subprocess.Popen(cmd, **_popen_console_flags())
+                        subprocess.Popen(
+                            cmd,
+                            cwd=BASE_DIR,
+                            env=_fa_child_env(),
+                            **_popen_console_flags(),
+                        )
                     else:
                         # Fallback — просто открываем браузер
                         brave_exe = find_brave()
@@ -1675,7 +1801,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                            '--email', email_,
                            '--cursor-pass', password,
                            '--mail-pass', mail_pass]
-                    subprocess.Popen(cmd, cwd=BASE_DIR, **_popen_console_flags())
+                    subprocess.Popen(
+                        cmd,
+                        cwd=BASE_DIR,
+                        env=_fa_child_env(),
+                        **_popen_console_flags(),
+                    )
                     mark_cursor_logged_in(email_)
                     ok = True
                 else: error = 'No credentials'
@@ -1687,7 +1818,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                            '--action', 'delete',
                            '--email', email_,
                            '--cursor-pass', password]
-                    subprocess.Popen(cmd, cwd=BASE_DIR, **_popen_console_flags())
+                    subprocess.Popen(
+                        cmd,
+                        cwd=BASE_DIR,
+                        env=_fa_child_env(),
+                        **_popen_console_flags(),
+                    )
                     ok = True
                 else: error = 'No credentials'
 

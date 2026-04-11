@@ -65,7 +65,8 @@ export default async function DownloadPage() {
           </h1>
           <p className="mt-3 text-sm text-white/70">
             Один файл — всё внутри. После установки подписки на сайте скачай EXE и
-            следуй шагам ниже.
+            следуй шагам ниже. Запуск сценария открывает одно окно терминала: весь
+            прогресс Full Automation (0–100%) и лог — только там, без лишних CMD.
           </p>
           <div className="mt-6">
             <a
