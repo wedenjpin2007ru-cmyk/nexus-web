@@ -520,6 +520,22 @@ def open_default_browser(url: str) -> None:
 
 
 PANEL_APP_PROFILE_DIR = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "panel_app_profile"
+# Компактное окно по центру экрана (как у launcher.py после снятия kiosk).
+PANEL_WINDOW_W = 880
+PANEL_WINDOW_H = 540
+
+
+def _panel_centered_window_args() -> tuple[int, int, int, int]:
+    w, h, x, y = PANEL_WINDOW_W, PANEL_WINDOW_H, 80, 60
+    if os.name == "nt":
+        try:
+            cx = ctypes.windll.user32.GetSystemMetrics(0)
+            cy = ctypes.windll.user32.GetSystemMetrics(1)
+            x = max(0, (cx - w) // 2)
+            y = max(0, (cy - h) // 2)
+        except Exception:
+            pass
+    return w, h, x, y
 
 _BRAVE_PATHS_PANEL = [
     r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
@@ -568,11 +584,14 @@ def open_client_panel_app_window(url: str) -> bool:
     try:
         PANEL_APP_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         profile = str(PANEL_APP_PROFILE_DIR.resolve())
+        w, h, px, py = _panel_centered_window_args()
         subprocess.Popen(
             [
                 exe,
                 f"--user-data-dir={profile}",
                 "--new-window",
+                f"--window-size={w},{h}",
+                f"--window-position={px},{py}",
                 f"--app={url}",
             ],
             cwd=os.environ.get("SystemRoot", "C:\\Windows"),
@@ -632,30 +651,32 @@ canvas#bg{position:fixed;inset:0;z-index:0;display:block;width:100vw;height:100v
 @keyframes grain{0%,100%{transform:translate(0,0)}25%{transform:translate(-2%,2%)}50%{transform:translate(2%,-1%)}75%{transform:translate(-1%,-2%)}}
 .cursor-dot{position:fixed;width:6px;height:6px;border-radius:50%;background:#fff;
   box-shadow:0 0 12px #fff,0 0 28px rgba(255,255,255,.35);pointer-events:none;z-index:9999;transform:translate(-50%,-50%)}
-.ui{position:relative;z-index:10;min-height:100vh;display:flex;flex-direction:column;align-items:center;
-  justify-content:flex-start;padding:28px 24px 32px}
-.hdr{width:100%;max-width:720px;display:flex;align-items:center;justify-content:flex-end;margin-bottom:4px}
+.ui{position:relative;z-index:10;min-height:100vh;display:flex;flex-direction:column;
+  align-items:stretch;padding:14px 18px 20px}
+.hdr{position:absolute;top:10px;right:14px;z-index:20;display:flex;justify-content:flex-end}
+.center-stack{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;width:100%;max-width:420px;margin:0 auto;padding:40px 8px 20px;box-sizing:border-box}
 .btn-x{font-family:'Rajdhani',sans-serif;font-size:22px;font-weight:600;color:rgba(255,255,255,.35);background:none;border:none;
   cursor:none;padding:8px;transition:color .2s,text-shadow .2s}
 .btn-x:hover{color:#fff;text-shadow:0 0 20px #fff}
-.hero{text-align:center;margin:12px 0 28px}
-.title{font-family:'Rajdhani',sans-serif;font-size:clamp(36px,8vw,56px);font-weight:700;letter-spacing:.35em;
+.hero{text-align:center;margin:4px 0 10px}
+.title{font-family:'Rajdhani',sans-serif;font-size:clamp(26px,6vw,40px);font-weight:700;letter-spacing:.28em;
   color:#fff;text-shadow:0 0 40px rgba(255,255,255,.25),0 0 80px rgba(255,255,255,.08);
   animation:titlePulse 4s ease-in-out infinite}
 @keyframes titlePulse{0%,100%{opacity:1;filter:brightness(1)}50%{opacity:.92;filter:brightness(1.15)}}
 .sub{font-size:12px;font-weight:600;letter-spacing:.42em;color:rgba(255,255,255,.4);margin-top:10px;font-family:'Rajdhani',sans-serif}
-.card{width:100%;max-width:520px;border:1px solid rgba(255,255,255,.28);background:rgba(0,0,0,.55);
-  backdrop-filter:blur(8px);padding:22px 24px;margin-bottom:20px;animation:fadeUp .7s ease both}
+.card{width:100%;max-width:400px;border:1px solid rgba(255,255,255,.28);background:rgba(0,0,0,.55);
+  backdrop-filter:blur(8px);padding:16px 18px;margin-bottom:0;animation:fadeUp .7s ease both}
 @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 .row{margin-top:14px}
 .lbl{font-size:10px;font-weight:600;letter-spacing:.22em;color:rgba(255,255,255,.4);text-transform:uppercase;margin-bottom:6px;font-family:'Rajdhani',sans-serif}
 .val{font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:500;color:#fff;word-break:break-all}
 .divider{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);margin:20px 0}
-.product{border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.4);padding:20px 22px;width:100%;max-width:520px;
+.product{border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.4);padding:14px 16px;width:100%;max-width:400px;
   animation:fadeUp .85s ease .12s both}
-.product-name{font-family:'Rajdhani',sans-serif;font-size:16px;font-weight:700;letter-spacing:.18em;color:#fff}
-.product-desc{font-size:14px;font-weight:500;color:rgba(255,255,255,.5);margin-top:10px;line-height:1.55}
-.actions{width:100%;max-width:520px;margin-top:24px;display:flex;flex-direction:column;gap:12px}
+.product-name{font-family:'Rajdhani',sans-serif;font-size:13px;font-weight:700;letter-spacing:.14em;color:#fff}
+.product-desc{font-size:12px;font-weight:500;color:rgba(255,255,255,.5);margin-top:8px;line-height:1.5}
+.actions{width:100%;max-width:400px;margin-top:8px;display:flex;flex-direction:column;gap:10px}
 .btn{font-family:'Rajdhani',sans-serif;font-size:11px;font-weight:600;letter-spacing:.16em;padding:14px 20px;border:1px solid rgba(255,255,255,.45);
   background:rgba(0,0,0,.6);color:#fff;cursor:none;transition:background .2s,border-color .2s,box-shadow .2s,transform .15s}
 .btn:hover{background:#fff;color:#000;border-color:#fff;box-shadow:0 0 24px rgba(255,255,255,.25)}
@@ -666,7 +687,7 @@ canvas#bg{position:fixed;inset:0;z-index:0;display:block;width:100vw;height:100v
 .btn-row{display:flex;gap:10px;flex-wrap:wrap}
 .btn-row .btn{flex:1;min-width:140px}
 .msg{margin-top:14px;font-size:13px;font-weight:500;color:rgba(255,255,255,.55);text-align:center;min-height:1.2em;font-family:'Rajdhani',sans-serif}
-.hint{font-size:12px;font-weight:500;color:rgba(255,255,255,.35);text-align:center;margin-top:18px;max-width:480px;line-height:1.6;font-family:'Rajdhani',sans-serif}
+.hint{font-size:11px;font-weight:500;color:rgba(255,255,255,.35);text-align:center;margin-top:10px;max-width:380px;line-height:1.55;font-family:'Rajdhani',sans-serif}
 </style>
 </head>
 <body>
@@ -679,29 +700,31 @@ canvas#bg{position:fixed;inset:0;z-index:0;display:block;width:100vw;height:100v
   <div class="hdr">
     <button type="button" class="btn-x" id="btn-close" title="Выход">✕</button>
   </div>
-  <div class="hero">
-    <div class="title">NEXUS</div>
-    <div class="sub">NEXUS CURSOR · CLIENT</div>
-  </div>
-  <div class="card" id="card-sub">
-    <div class="lbl">Статус</div>
-    <div class="val" id="line-status">—</div>
-    <div class="row"><div class="lbl">Аккаунт</div><div class="val" id="line-email">—</div></div>
-    <div class="row"><div class="lbl">Действует до</div><div class="val" id="line-ends">—</div></div>
-  </div>
-  <div class="product" id="product-box">
-    <div class="product-name">nexus-cursor</div>
-    <div class="product-desc">Веб-панель и сценарии NEXUS для Cursor — тот же стиль, что и у launcher.py.</div>
-  </div>
-  <div class="actions">
-    <button type="button" class="btn btn-primary" id="btn-launch">ЗАПУСТИТЬ NEXUS-CURSOR</button>
-    <div class="btn-row">
-      <button type="button" class="btn" id="btn-account">КАБИНЕТ</button>
-      <button type="button" class="btn" id="btn-exit">ВЫХОД</button>
+  <div class="center-stack">
+    <div class="hero">
+      <div class="title">NEXUS</div>
+      <div class="sub">NEXUS CURSOR · CLIENT</div>
     </div>
-    <div class="msg" id="msg"></div>
+    <div class="card" id="card-sub">
+      <div class="lbl">Статус</div>
+      <div class="val" id="line-status">—</div>
+      <div class="row"><div class="lbl">Аккаунт</div><div class="val" id="line-email">—</div></div>
+      <div class="row"><div class="lbl">Действует до</div><div class="val" id="line-ends">—</div></div>
+    </div>
+    <div class="product" id="product-box">
+      <div class="product-name">nexus-cursor</div>
+      <div class="product-desc">Веб-панель и сценарии NEXUS для Cursor — тот же стиль, что и у launcher.py.</div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" id="btn-launch">ЗАПУСТИТЬ NEXUS-CURSOR</button>
+      <div class="btn-row">
+        <button type="button" class="btn" id="btn-account">КАБИНЕТ</button>
+        <button type="button" class="btn" id="btn-exit">ВЫХОД</button>
+      </div>
+      <div class="msg" id="msg"></div>
+    </div>
+    <p class="hint" id="hint"></p>
   </div>
-  <p class="hint" id="hint"></p>
 </div>
 <script type="application/json" id="nx-s">"""
 
