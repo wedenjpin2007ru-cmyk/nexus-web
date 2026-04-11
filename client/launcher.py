@@ -7,6 +7,8 @@ import json
 import sys
 import time
 from collections import deque
+from datetime import datetime
+from pathlib import Path
 import imaplib
 import email
 from email.header import decode_header
@@ -25,10 +27,70 @@ AUTOMATION_STATE_FILE = os.path.join(BASE_DIR, "automation_state.json")
 FA_UI_STATE_FILE = os.path.join(BASE_DIR, "full_automation_ui_state.json")
 CURSOR_EXE_PATH = r"D:\cursor\Cursor.exe"
 PORT = 7331
-DEFAULT_ACCOUNT_PASSWORD = "Artemka228zxc"
+DEFAULT_ACCOUNT_PASSWORD = os.environ.get("NEXUS_DEFAULT_PASSWORD", "Artemka228zxc")
 # Окно UI: по центру экрана, компактнее чем полноэкранный kiosk.
 NEXUS_UI_WIDTH = 1040
 NEXUS_UI_HEIGHT = 720
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SUBSCRIPTION STATUS (интеграция с nexus_client.py)
+# ═══════════════════════════════════════════════════════════════════════════
+_SUBSCRIPTION_STATUS = {
+    "has_access": False,
+    "email": None,
+    "ends_at": None,
+    "checked_at": None,
+}
+
+def load_subscription_status():
+    """Загрузить статус подписки из токена nexus_client"""
+    global _SUBSCRIPTION_STATUS
+    try:
+        token_path = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "token.json"
+        if not token_path.exists():
+            return
+
+        # Импортируем функции из nexus_client если доступны
+        try:
+            import requests
+            sys.path.insert(0, BASE_DIR)
+            from nexus_client import load_token, check_access, make_http_session, resolve_app_url
+
+            token = load_token()
+            if not token:
+                return
+
+            sess = make_http_session()
+            app_url = resolve_app_url()
+
+            has_access, ends_at, http_st, _, email = check_access(sess, token)
+
+            if http_st == 200:
+                _SUBSCRIPTION_STATUS = {
+                    "has_access": bool(has_access),
+                    "email": email,
+                    "ends_at": ends_at,
+                    "checked_at": datetime.now().isoformat(),
+                }
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def get_subscription_status():
+    """Получить текущий статус подписки"""
+    return dict(_SUBSCRIPTION_STATUS)
+
+def format_subscription_date(iso_date):
+    """Форматировать дату подписки"""
+    if not iso_date:
+        return "—"
+    try:
+        s = str(iso_date).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return str(iso_date)
 
 # Full automation: одно консольное окно, прогресс 0–100, без отдельных CMD/PowerShell.
 _fa_console_lock = threading.Lock()
@@ -46,6 +108,8 @@ _ACTIVITY_PCT = 0
 _ACTIVITY_PHASE = ""
 _ACTIVITY_BUSY = False
 _ACTIVITY_TASK = ""
+# Full automation / длинная цепочка — для UI «окна» прогресса (spawn_python_logged ставит busy)
+_ACTIVITY_PIPELINE = False
 # Шаги Full Automation для панели (как чеклист)
 _ACTIVITY_FA_STEPS: list[dict[str, str]] = []
 _FA_STEP_LABELS = (
@@ -81,6 +145,12 @@ def activity_set_busy(busy: bool, task: str = "") -> None:
     with _ACTIVITY_LOCK:
         _ACTIVITY_BUSY = bool(busy)
         _ACTIVITY_TASK = (task or "")[:120]
+
+
+def activity_set_pipeline(on: bool) -> None:
+    global _ACTIVITY_PIPELINE
+    with _ACTIVITY_LOCK:
+        _ACTIVITY_PIPELINE = bool(on)
 
 
 def activity_reset_fa_steps() -> None:
@@ -126,6 +196,7 @@ def activity_snapshot() -> dict:
             "pct": _ACTIVITY_PCT,
             "phase": _ACTIVITY_PHASE,
             "busy": _ACTIVITY_BUSY,
+            "pipeline": _ACTIVITY_PIPELINE,
             "task": _ACTIVITY_TASK,
             "lines": list(_ACTIVITY_LINES),
             "steps": [dict(x) for x in _ACTIVITY_FA_STEPS],
@@ -743,6 +814,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             time.sleep(0.4)
 
     try:
+        activity_set_pipeline(True)
         add_log("Automation started", "INFO")
         activity_reset_fa_steps()
         activity_fa_set_step(0, "active")
@@ -926,6 +998,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         activity_fa_mark_error()
         _finish_err(str(e))
     finally:
+        activity_set_pipeline(False)
         _FA_PRINT_TO_CONSOLE = False
 
 def load_cursor_login_state():
@@ -1086,8 +1159,15 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#fff;cursor:none;height:100vh}
-#matrix-bg{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;opacity:.38;pointer-events:none}
+html{height:100%;overflow:hidden}
+body{
+  background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#fff;cursor:none;
+  height:100%;min-height:0;max-height:100vh;max-height:100dvh;max-height:100svh;
+}
+#matrix-bg{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;opacity:.45;pointer-events:none}
+.particles-bg{position:fixed;inset:0;z-index:0;pointer-events:none}
+.particle{position:absolute;width:2px;height:2px;background:#fff;border-radius:50%;box-shadow:0 0 10px #fff;animation:float 20s infinite linear}
+@keyframes float{0%{transform:translateY(100vh) translateX(0)}100%{transform:translateY(-100vh) translateX(100px)}}
 .fa-vignette{position:fixed;inset:0;z-index:2;pointer-events:none;background:radial-gradient(ellipse at center,transparent 0%,rgba(0,0,0,.88) 100%)}
 .fa-noise{position:fixed;inset:-50%;z-index:3;pointer-events:none;opacity:.035;
   background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -1098,6 +1178,18 @@ body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#ff
 .activity-step.active{opacity:1;font-weight:700}
 .activity-step.done{opacity:.72}
 .activity-step.error{opacity:1;color:#fcc}
+.subscription-status{
+  margin:8px auto 12px;padding:10px 16px;max-width:600px;
+  border:1px solid rgba(255,255,255,.35);border-radius:8px;
+  background:rgba(0,0,0,.65);text-align:center;
+}
+.sub-status-label{font-family:Orbitron,monospace;font-size:8px;letter-spacing:3px;color:rgba(255,255,255,.5);margin-bottom:6px}
+.sub-status-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:4px}
+.sub-badge{font-family:Orbitron,monospace;font-size:10px;letter-spacing:2px;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.4);background:rgba(0,0,0,.5)}
+.sub-badge.active{border-color:#fff;background:rgba(255,255,255,.15);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
+.sub-email{font-family:'Courier New',monospace;font-size:10px;color:rgba(255,255,255,.7)}
+.sub-ends{font-size:9px;color:rgba(255,255,255,.45);font-family:Orbitron,monospace;letter-spacing:1px}
 .scanlines{
   position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;
   background:
@@ -1117,16 +1209,32 @@ body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#ff
     radial-gradient(ellipse 50% 70% at 80% 80%, rgba(80,10,120,0.22) 0%, transparent 60%),
     radial-gradient(ellipse 40% 40% at 60% 50%, rgba(160,80,220,0.08) 0%, transparent 55%);
 }
-.ui{position:relative;z-index:10;display:flex;flex-direction:column;height:100vh;padding:0 24px 10px;overflow:hidden}
+.ui{
+  position:relative;z-index:10;display:flex;flex-direction:column;
+  height:100%;min-height:0;max-height:100vh;max-height:100dvh;max-height:100svh;
+  padding:0 24px 0;
+  /* место под фиксированный лог-док снизу (высота совпадает с max-height дока) */
+  padding-bottom:max(min(38vh, 300px), calc(env(safe-area-inset-bottom, 0px) + 12px));
+  overflow:hidden;box-sizing:border-box;
+}
 .ui-top{flex-shrink:0}
-.ui-mid{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.ui-mid{
+  flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
+  overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+}
 .ui-mid .page{display:none !important;flex:1;min-height:0;overflow:hidden;flex-direction:column}
 .ui-mid .page.active{display:flex !important}
+#page-main.page.active{justify-content:center;align-items:stretch}
 .ui-log{
-  flex-shrink:0;display:flex;flex-direction:column;gap:5px;
-  border-top:2px solid rgba(255,255,255,.55)!important;padding-top:10px;margin-top:4px;
-  min-height:155px;max-height:40vh;background:rgba(8,8,8,.97)!important;z-index:25;
-  box-shadow:0 -8px 32px rgba(0,0,0,.95)!important;
+  display:flex;flex-direction:column;gap:5px;
+  position:fixed;left:0;right:0;bottom:0;width:100%;box-sizing:border-box;
+  padding:10px 24px max(10px, env(safe-area-inset-bottom, 0px));
+  margin:0;
+  border-top:2px solid rgba(255,255,255,.55)!important;
+  min-height:min(140px,22vh);max-height:min(38vh,300px);overflow-y:auto;overflow-x:hidden;
+  background:rgba(8,8,8,.98)!important;z-index:80;
+  box-shadow:0 -10px 40px rgba(0,0,0,.97)!important;
+  -webkit-overflow-scrolling:touch;
 }
 .header{display:flex;align-items:center;justify-content:space-between;padding:16px 0 0}
 .status{display:flex;align-items:center;gap:8px;font-size:11px;color:#444;letter-spacing:2px}
@@ -1147,6 +1255,114 @@ body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#ff
 .tab:hover{color:#b266ff}
 .tab.active{color:#b266ff;border-bottom-color:#b266ff}
 /* MAIN */
+.status-card-3d{
+  width:100%;max-width:600px;margin:0 auto 30px;
+  perspective:1000px;
+}
+.status-card-inner{
+  position:relative;
+  background:rgba(0,0,0,.9);
+  border:2px solid rgba(255,255,255,.4);
+  border-radius:20px;
+  padding:24px;
+  transform-style:preserve-3d;
+  transition:all .3s;
+  box-shadow:0 10px 40px rgba(0,0,0,.5);
+}
+.status-card-inner:hover{
+  transform:translateY(-5px) rotateX(2deg);
+  border-color:#fff;
+  box-shadow:0 20px 60px rgba(0,0,0,.7),0 0 40px rgba(255,255,255,.1);
+}
+.status-card-glow{
+  position:absolute;
+  inset:-2px;
+  background:linear-gradient(45deg,transparent,rgba(255,255,255,.1),transparent);
+  border-radius:20px;
+  opacity:0;
+  transition:opacity .3s;
+  pointer-events:none;
+}
+.status-card-inner:hover .status-card-glow{
+  opacity:1;
+  animation:rotate 3s linear infinite;
+}
+@keyframes rotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.status-header{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  margin-bottom:20px;
+}
+.status-icon{
+  font-size:32px;
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+.status-title{
+  font-family:'Orbitron',monospace;
+  font-size:18px;
+  font-weight:900;
+  letter-spacing:4px;
+  color:#fff;
+  text-shadow:0 0 20px rgba(255,255,255,.5);
+}
+.status-body{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.status-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.status-label{
+  font-family:'Orbitron',monospace;
+  font-size:10px;
+  letter-spacing:3px;
+  color:rgba(255,255,255,.6);
+}
+.status-value{
+  font-family:'Orbitron',monospace;
+  font-size:14px;
+  font-weight:700;
+  color:#fff;
+  text-shadow:0 0 10px rgba(255,255,255,.3);
+}
+.progress-bar-3d{
+  width:100%;
+  height:12px;
+  background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.3);
+  border-radius:6px;
+  overflow:hidden;
+  position:relative;
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.3);
+}
+.progress-fill-3d{
+  height:100%;
+  background:linear-gradient(90deg,#fff,rgba(255,255,255,.8));
+  border-radius:6px;
+  transition:width .3s;
+  box-shadow:0 0 20px rgba(255,255,255,.5);
+  position:relative;
+}
+.progress-fill-3d::after{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);
+  animation:shimmer 2s infinite;
+}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.status-message{
+  font-size:11px;
+  color:rgba(255,255,255,.7);
+  text-align:center;
+  font-family:'Rajdhani',sans-serif;
+  letter-spacing:1px;
+}
 .cards{display:grid;grid-template-columns:repeat(3,minmax(220px,280px));gap:18px;width:100%;max-width:1000px;margin:0 auto;justify-content:center}
 .card{height:120px;border-radius:18px;background:transparent;border:1px solid rgba(255,255,255,0.1);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
@@ -1221,63 +1437,189 @@ body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#ff
 .activity-progress-fill{height:100%;width:0%;background:#fff;border-radius:3px;transition:width .25s ease}
 .log-box.log-scroll{min-height:100px;flex:1;max-height:none;max-width:100%;overflow-y:auto;overflow-x:hidden;white-space:pre-wrap;word-break:break-word;font-size:10px;line-height:1.4;margin:0}
 #activity-log{color:#e8e8e8 !important}
+@media (max-height:780px){
+  .title{font-size:34px!important;letter-spacing:6px!important}
+  .title-wrap{margin:2px 0 8px!important}
+  .header{padding:8px 0 0!important}
+  .tabs{margin-bottom:6px!important}
+  .ui{padding-bottom:max(min(34vh, 260px), calc(env(safe-area-inset-bottom, 0px) + 10px))!important}
+  .ui-log{min-height:110px;max-height:min(34vh, 260px)}
+}
+.script-progress-win{
+  position:fixed;left:50%;z-index:88;
+  bottom:min(max(160px, calc(min(38vh, 300px) + 14px)), 50vh);
+  transform:translateX(-50%) translateY(16px);
+  width:min(580px,94vw);max-height:min(46vh,420px);z-index:60;
+  display:flex;flex-direction:column;gap:6px;
+  padding:12px 14px 10px;
+  background:rgba(8,4,14,.97);border:1px solid #b266ff55;border-radius:14px;
+  box-shadow:0 16px 56px rgba(0,0,0,.9),0 0 0 1px rgba(178,102,255,.12);
+  opacity:0;pointer-events:none;visibility:hidden;
+  transition:opacity .24s ease,transform .24s ease,visibility 0s linear .25s;
+}
+.script-progress-win.visible{
+  opacity:1;pointer-events:auto;visibility:visible;
+  transform:translateX(-50%) translateY(0);
+  transition:opacity .24s ease,transform .24s ease,visibility 0s;
+}
+.script-progress-win-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0}
+.script-progress-win-title{font-family:Orbitron,monospace;font-size:9px;letter-spacing:3px;color:#b266ff88}
+.script-progress-win-min{
+  flex-shrink:0;width:30px;height:28px;padding:0;border:1px solid #35204f;border-radius:8px;
+  background:transparent;color:#888;font-size:12px;line-height:1;cursor:none;font-family:Orbitron,monospace
+}
+.script-progress-win-min:hover{color:#b266ff;border-color:#b266ff44}
+.script-progress-win-task{font-family:Orbitron,monospace;font-size:10px;letter-spacing:2px;color:#c997ff;min-height:1.2em;word-break:break-word}
+.script-progress-win-body{display:flex;flex-direction:column;gap:5px;min-height:0;flex:1}
+.script-progress-win-pct{font-family:Orbitron,monospace;font-size:10px;letter-spacing:3px;margin-top:1px}
+.script-progress-win-phase{font-size:10px;line-height:1.45;color:#888;max-height:3em;overflow:hidden}
+.spw-track{flex-shrink:0}
+.script-progress-win-log{
+  flex:1;min-height:72px;max-height:min(22vh,200px);margin:0;overflow-y:auto;overflow-x:hidden;
+  background:rgba(0,0,0,.45);border:1px solid #241335;border-radius:8px;padding:8px 10px;
+  font-family:Consolas,'Courier New',monospace;font-size:9px;line-height:1.38;color:#e8e8e8;white-space:pre-wrap;word-break:break-word
+}
+.script-progress-win--min{max-height:none;padding-bottom:10px}
+.script-progress-win--min .script-progress-win-body{display:none!important}
 
-/* Monochrome theme: black + white only */
-body{background:#000 !important;color:#fff !important}
-.bg-overlay{display:none !important}
-#cursor,#cursor::after,.sdot{border-color:#fff !important;background:#fff !important;box-shadow:0 0 10px #ffffff66 !important}
-.status,.close-btn,.subtitle,.tab,.acc-meta,.inbox-name,.msg-from,.msg-date,.msg-body,.inbox-loading,.inbox-empty,.acc-empty,.log-label,.inbox-refresh,.card-label,.inbox-title,.inbox-email,.acc-email,.msg-subj,.msg-code-num,.msg-code-copy{color:#fff !important}
+/* ═══════════════════════════════════════════════════════════════════════════
+   MONOCHROME THEME: Pure Black & White (Matrix Style)
+   ═══════════════════════════════════════════════════════════════════════════ */
+html,body{height:100%!important;max-height:100dvh!important;max-height:100svh!important;overflow:hidden!important}
+body{background:#000!important;color:#fff!important}
+.bg-overlay{display:none!important}
+
+/* Cursor & Status Dot */
+.cursor-dot,.sdot{border-color:#fff!important;background:#fff!important;box-shadow:0 0 12px #fff,0 0 24px rgba(255,255,255,.4)!important}
+
+/* Title - White with glow */
 .title{
-  background:linear-gradient(90deg,#fff,#fff,#fff) !important;
-  -webkit-background-clip:text !important;
-  -webkit-text-fill-color:transparent !important;
-  filter:drop-shadow(0 0 10px #ffffff66) !important;
+  background:linear-gradient(90deg,#fff,#fff,#fff)!important;
+  -webkit-background-clip:text!important;
+  -webkit-text-fill-color:transparent!important;
+  filter:drop-shadow(0 0 20px rgba(255,255,255,.5))!important;
+  animation:titlePulse 4s ease-in-out infinite!important;
 }
-.tabs,.tab.active,.tab:hover,.inbox-refresh,.inbox-refresh:hover,.msg-code{border-color:#fff !important}
-.card,.acc-card,.msg-card,.inbox-acc-btn,.log-box,.msg-code{
-  background:rgba(0,0,0,0.72) !important;
-  border-color:rgba(255,255,255,0.45) !important;
-  box-shadow:none !important;
+@keyframes titlePulse{0%,100%{opacity:1;filter:drop-shadow(0 0 20px rgba(255,255,255,.5))}50%{opacity:.92;filter:drop-shadow(0 0 30px rgba(255,255,255,.7))}}
+
+/* All text elements - pure white */
+.status,.close-btn,.subtitle,.tab,.acc-meta,.inbox-name,.msg-from,.msg-date,.msg-body,
+.inbox-loading,.inbox-empty,.acc-empty,.log-label,.inbox-refresh,.card-label,.inbox-title,
+.inbox-email,.acc-email,.msg-subj,.msg-code-num,.msg-code-copy,.acc-num,.acc-btn,
+.sub-status-label,.sub-badge,.sub-email,.sub-ends,.activity-progress-track{
+  color:#fff!important;
 }
-.card:hover,.acc-card:hover,.msg-card:hover,.inbox-acc-btn:hover,.inbox-acc-btn.active,.acc-btn:hover,.danger-btn:hover,.msg-code-copy:hover{
-  color:#fff !important;
-  border-color:#fff !important;
-  background:#000 !important;
-  box-shadow:none !important;
+
+/* Borders - white */
+.tabs,.tab.active,.tab:hover,.inbox-refresh:hover,.msg-code,
+.subscription-status,.sub-badge{
+  border-color:rgba(255,255,255,.5)!important;
 }
+
+/* Cards & Containers - black with white borders */
+.card,.acc-card,.msg-card,.inbox-acc-btn,.log-box,.msg-code,
+.subscription-status{
+  background:rgba(0,0,0,.85)!important;
+  border-color:rgba(255,255,255,.35)!important;
+  box-shadow:none!important;
+}
+
+/* Hover states - brighter white borders */
+.card:hover,.acc-card:hover,.msg-card:hover,.inbox-acc-btn:hover,
+.inbox-acc-btn.active,.acc-btn:hover,.danger-btn:hover,.msg-code-copy:hover,
+.tab:hover,.close-btn:hover,.inbox-refresh:hover{
+  color:#fff!important;
+  border-color:#fff!important;
+  background:rgba(0,0,0,.95)!important;
+  box-shadow:0 0 20px rgba(255,255,255,.15)!important;
+}
+
+/* Active subscription badge */
+.sub-badge.active{
+  border-color:#fff!important;
+  background:rgba(255,255,255,.12)!important;
+  box-shadow:0 0 15px rgba(255,255,255,.25)!important;
+}
+
+/* Badges */
 .acc-visit-yes,.acc-visit-no{
-  color:#fff !important;
-  border-color:#fff !important;
-  background:#000 !important;
+  color:#fff!important;
+  border-color:rgba(255,255,255,.4)!important;
+  background:rgba(0,0,0,.7)!important;
 }
-.tab[onclick*="automation"],.tab[onclick*="psscripts"]{display:none !important}
-#page-automation,#page-psscripts{display:none !important}
-.ui *,.ui *::before,.ui *::after{
-  color:#fff !important;
-  border-color:rgba(255,255,255,0.5) !important;
-  box-shadow:none !important;
+
+/* Progress bars */
+.activity-progress-track{
+  background:rgba(255,255,255,.15)!important;
+  border-color:rgba(255,255,255,.4)!important;
 }
+.activity-progress-fill{
+  background:#fff!important;
+  box-shadow:0 0 10px rgba(255,255,255,.5)!important;
+}
+
+/* Forms */
 input,textarea,button{
-  background:#000 !important;
-  color:#fff !important;
-  border-color:rgba(255,255,255,0.5) !important;
+  background:rgba(0,0,0,.9)!important;
+  color:#fff!important;
+  border-color:rgba(255,255,255,.4)!important;
 }
-/* Kill remaining purple from inline style attributes */
-[style*="#b266ff"],[style*="#c997ff"],[style*="#a95bff"],[style*="#35204f"],[style*="#241335"],[style*="#1f1230"],[style*="#090511"],[style*="#0f081a"],[style*="#120b1f"],[style*="#ddaaff"],[style*="#b985ff"]{
-  color:#fff !important;
-  border-color:#fff !important;
-  background:#000 !important;
-  box-shadow:none !important;
+input:focus,textarea:focus{
+  border-color:#fff!important;
+  box-shadow:0 0 10px rgba(255,255,255,.2)!important;
 }
+
+/* Log dock */
 #nexus-log-dock{
+  position:fixed!important;left:0!important;right:0!important;bottom:0!important;
+  z-index:85!important;
   box-shadow:0 -10px 36px rgba(0,0,0,.98)!important;
-  border-top:2px solid rgba(255,255,255,.65)!important;
-  background:rgba(5,5,5,.99)!important;
+  border-top:2px solid rgba(255,255,255,.6)!important;
+  background:rgba(0,0,0,.98)!important;
 }
+
+/* Script progress window */
+.script-progress-win,.script-progress-win-log{
+  background:rgba(0,0,0,.96)!important;
+  border-color:rgba(255,255,255,.5)!important;
+  box-shadow:0 12px 40px rgba(0,0,0,.95),0 0 0 1px rgba(255,255,255,.1)!important;
+}
+.script-progress-win-title,.script-progress-win-task,.script-progress-win-pct,
+.script-progress-win-phase,.script-progress-win-min,#spw-log,#activity-log{
+  color:#fff!important;
+}
+.script-progress-win-min{
+  border-color:rgba(255,255,255,.4)!important;
+  background:rgba(0,0,0,.8)!important;
+}
+.script-progress-win-min:hover{
+  border-color:#fff!important;
+  color:#fff!important;
+}
+
+/* Modals */
+#reg-modal>div,#fa-modal>div,#confirm-modal>div{
+  background:rgba(0,0,0,.95)!important;
+  border-color:rgba(255,255,255,.5)!important;
+  box-shadow:0 0 60px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.15)!important;
+}
+
+/* Remove all purple/color references */
+[style*="#b266ff"],[style*="#c997ff"],[style*="#a95bff"],[style*="#35204f"],
+[style*="#241335"],[style*="#1f1230"],[style*="#090511"],[style*="#0f081a"],
+[style*="#120b1f"],[style*="#ddaaff"],[style*="#b985ff"]{
+  color:#fff!important;
+  border-color:rgba(255,255,255,.4)!important;
+  background:rgba(0,0,0,.85)!important;
+}
+
+/* Matrix background - more visible */
+#matrix-bg{opacity:.45!important}
 </style>
 </head>
 <body>
 <canvas id="matrix-bg" aria-hidden="true"></canvas>
+<div id="particles-container" class="particles-bg"></div>
 <div class="fa-vignette" aria-hidden="true"></div>
 <div class="fa-noise" aria-hidden="true"></div>
 <div class="scanlines"></div>
@@ -1292,19 +1634,37 @@ input,textarea,button{
     <div class="title">NEXUS</div>
     <div class="subtitle">AUTOMATION SUITE</div>
   </div>
-  <div class="tabs">
-    <div class="tab active" onclick="switchTab('main',this)">// ГЛАВНАЯ</div>
-    <div class="tab" onclick="switchTab('automation',this)">// AUTOMATION</div>
-    <div class="tab" onclick="switchTab('mailbox',this)">// MAILBOX</div>
-    <div class="tab" onclick="switchTab('cursor',this)">// CURSOR</div>
-    <div class="tab" onclick="switchTab('inbox',this);initInbox()">// INBOX</div>
-    <div class="tab" onclick="switchTab('psscripts',this);loadPsScripts()">// PS SCRIPTS</div>
-  </div>
   </div>
 
   <div class="ui-mid">
   <!-- MAIN -->
   <div class="page active" id="page-main">
+    <!-- Status Card 3D -->
+    <div class="status-card-3d">
+      <div class="status-card-inner">
+        <div class="status-card-glow"></div>
+        <div class="status-header">
+          <div class="status-icon">⚡</div>
+          <div class="status-title">SYSTEM STATUS</div>
+        </div>
+        <div class="status-body">
+          <div class="status-row">
+            <span class="status-label">STATUS</span>
+            <span class="status-value" id="system-status">READY</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">PROGRESS</span>
+            <span class="status-value" id="system-progress">0%</span>
+          </div>
+          <div class="progress-bar-3d">
+            <div class="progress-fill-3d" id="progress-fill" style="width:0%"></div>
+          </div>
+          <div class="status-message" id="status-message">Система готова к работе</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Cards -->
     <div class="cards">
       <div class="card" onclick="run('mailbox_register',this)">
         <div class="card-icon">📧</div><div class="card-label">REGISTER<br>MAILBOX</div>
@@ -1397,6 +1757,20 @@ input,textarea,button{
     <pre id="activity-log" class="log-box log-scroll">ожидание данных с сервера…</pre>
   </div>
 
+</div>
+
+<div id="script-progress-win" class="script-progress-win" role="status" aria-live="polite" aria-atomic="false">
+  <div class="script-progress-win-head">
+    <span class="script-progress-win-title">// ХОД ВЫПОЛНЕНИЯ СКРИПТА</span>
+    <button type="button" class="script-progress-win-min" onclick="toggleScriptProgressWinMin(event)" title="Свернуть / развернуть">▾</button>
+  </div>
+  <div id="spw-task" class="script-progress-win-task"></div>
+  <div class="script-progress-win-body">
+    <div class="activity-progress-track spw-track"><div id="spw-fill" class="activity-progress-fill"></div></div>
+    <div id="spw-pct" class="script-progress-win-pct"></div>
+    <div id="spw-phase" class="script-progress-win-phase"></div>
+    <pre id="spw-log" class="script-progress-win-log"></pre>
+  </div>
 </div>
 
 <!-- REGISTER MODAL -->
@@ -1756,6 +2130,37 @@ async function refreshAccountPanels(){
 }
 setInterval(refreshAccountPanels,12000);
 
+function pollSubscription(){
+  fetch('/data/subscription',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+    if(!d||!d.ok)return;
+    const badge=document.getElementById('sub-badge');
+    const email=document.getElementById('sub-email');
+    const ends=document.getElementById('sub-ends');
+    if(badge){
+      if(d.has_access){
+        badge.textContent='● АКТИВНА';
+        badge.classList.add('active');
+      }else{
+        badge.textContent='○ НЕТ ДОСТУПА';
+        badge.classList.remove('active');
+      }
+    }
+    if(email)email.textContent=d.email||'';
+    if(ends)ends.textContent=d.ends_at?'Действует до: '+d.ends_at:'';
+  }).catch(()=>{});
+}
+setInterval(pollSubscription,15000);
+pollSubscription();
+
+function toggleScriptProgressWinMin(ev){
+  if(ev) ev.stopPropagation();
+  const w=document.getElementById('script-progress-win');
+  if(!w)return;
+  w.classList.toggle('script-progress-win--min');
+  const b=w.querySelector('.script-progress-win-min');
+  if(b)b.textContent=w.classList.contains('script-progress-win--min')?'▸':'▾';
+}
+
 function pollActivity(){
   fetch('/data/activity',{cache:'no-store'}).then(r=>{
     if(!r.ok)throw new Error('HTTP '+r.status);
@@ -1785,6 +2190,42 @@ function pollActivity(){
       const t=d.lines.slice(-150).join('\n');
       if(t.length)pre.textContent=t;
       pre.scrollTop=pre.scrollHeight;
+    }
+    const showWin=!!(d.busy||d.pipeline);
+    const win=document.getElementById('script-progress-win');
+    if(win){
+      if(showWin&&!window.__nexusSpwWasOn){
+        win.classList.remove('script-progress-win--min');
+        const bm=win.querySelector('.script-progress-win-min');
+        if(bm)bm.textContent='▾';
+      }
+      window.__nexusSpwWasOn=showWin;
+      win.classList.toggle('visible',showWin);
+    }
+    const spwFill=document.getElementById('spw-fill');
+    const spwPct=document.getElementById('spw-pct');
+    const spwPh=document.getElementById('spw-phase');
+    const spwLog=document.getElementById('spw-log');
+    const spwTask=document.getElementById('spw-task');
+    if(showWin){
+      if(spwFill)spwFill.style.width=pct+'%';
+      if(spwPct)spwPct.textContent=(d.busy?'▶ ':'')+String(pct)+'%';
+      if(spwPh){
+        const t=(d.task?'['+d.task+'] ':'')+(d.phase||'');
+        spwPh.textContent=t||'—';
+      }
+      if(spwTask){
+        let label='Full automation';
+        if(d.busy&&d.task)label=String(d.task);
+        else if(d.pipeline)label='Full automation';
+        else if(d.task)label=String(d.task);
+        spwTask.textContent=label;
+      }
+      if(spwLog&&Array.isArray(d.lines)){
+        const tail=d.lines.slice(-40).join('\n');
+        spwLog.textContent=tail||'…';
+        spwLog.scrollTop=spwLog.scrollHeight;
+      }
     }
   }).catch(()=>{
     const pre=document.getElementById('activity-log');
@@ -1837,6 +2278,19 @@ document.addEventListener('DOMContentLoaded',()=>{
     const mainTab=document.querySelector('.tabs .tab');
     if(mainTab) switchTab('main',mainTab);
   }catch(e){}
+
+  // Animated particles
+  const container=document.getElementById('particles-container');
+  if(container){
+    for(let i=0;i<30;i++){
+      const p=document.createElement('div');
+      p.className='particle';
+      p.style.left=Math.random()*100+'%';
+      p.style.animationDelay=Math.random()*20+'s';
+      p.style.animationDuration=(15+Math.random()*10)+'s';
+      container.appendChild(p);
+    }
+  }
 });
 </script>
 </body>
@@ -1931,6 +2385,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._resp(404, 'text/plain;charset=utf-8', b'gif not found')
         elif self.path.split("?", 1)[0] == "/data/activity":
             self._json(activity_snapshot())
+
+        elif self.path == '/data/subscription':
+            sub = get_subscription_status()
+            self._json({
+                "ok": True,
+                "has_access": sub.get("has_access", False),
+                "email": sub.get("email"),
+                "ends_at": format_subscription_date(sub.get("ends_at")),
+                "checked_at": sub.get("checked_at"),
+            })
 
         elif self.path == '/data/accounts':
             mailbox_acc = load_accounts(ACCOUNTS_FILE)
@@ -2245,6 +2709,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({'ok': ok, 'error': error}).encode())
 
 _detach_launcher_console()
+
+# Загрузить статус подписки при старте
+threading.Thread(target=load_subscription_status, daemon=True).start()
 
 brave = find_brave()
 server = http.server.HTTPServer(('localhost', PORT), Handler)
