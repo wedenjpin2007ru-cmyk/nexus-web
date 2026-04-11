@@ -422,6 +422,9 @@ def launch_payload(
     assume_bundled_files_ready: bool = False,
     mode: LaunchMode = "auto",
 ) -> tuple[bool, str]:
+    # Панель подписки могла остаться поверх — добиваем ещё раз перед лаунчером.
+    close_panel_chromium_profile()
+
     allow_cmd = mode in ("auto", "cmd")
     allow_launcher = mode in ("auto", "launcher")
 
@@ -522,6 +525,9 @@ def open_default_browser(url: str) -> None:
 
 
 PANEL_APP_PROFILE_DIR = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "panel_app_profile"
+# Окно панели подписки (Brave --app=…): PID + порт локального сервера — чтобы гарантированно закрыть при старте лаунчера.
+_PANEL_BROWSER_PROC: subprocess.Popen | None = None
+_SUBSCRIPTION_PANEL_PORT: int | None = None
 # Компактное окно по центру экрана (как у launcher.py после снятия kiosk).
 PANEL_WINDOW_W = 880
 PANEL_WINDOW_H = 540
@@ -568,6 +574,9 @@ def open_client_panel_app_window(url: str) -> bool:
     Окно без вкладок и без адресной строки (флаг --app), по смыслу как launcher.py.
     NEXUS_PANEL_FULL_BROWSER=1 — обычная вкладка через webbrowser.
     """
+    global _PANEL_BROWSER_PROC
+    _PANEL_BROWSER_PROC = None
+
     if os.environ.get("NEXUS_PANEL_FULL_BROWSER", "").strip().lower() in ("1", "true", "yes", "on"):
         try:
             webbrowser.open(url, new=2)
@@ -587,7 +596,8 @@ def open_client_panel_app_window(url: str) -> bool:
         PANEL_APP_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         profile = str(PANEL_APP_PROFILE_DIR.resolve())
         w, h, px, py = _panel_centered_window_args()
-        subprocess.Popen(
+        _no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        _PANEL_BROWSER_PROC = subprocess.Popen(
             [
                 exe,
                 f"--user-data-dir={profile}",
@@ -597,11 +607,13 @@ def open_client_panel_app_window(url: str) -> bool:
                 f"--app={url}",
             ],
             cwd=os.environ.get("SystemRoot", "C:\\Windows"),
+            creationflags=_no_win,
         )
-        log(f"panel app window: {exe} --app=…")
+        log(f"panel app window pid={_PANEL_BROWSER_PROC.pid} {exe} --app=…")
         return True
     except Exception as e:
         log(f"panel app window failed: {e!r}, fallback webbrowser")
+        _PANEL_BROWSER_PROC = None
         try:
             webbrowser.open(url, new=2)
             return True
@@ -609,10 +621,38 @@ def open_client_panel_app_window(url: str) -> bool:
             return False
 
 
+def clear_subscription_panel_port() -> None:
+    global _SUBSCRIPTION_PANEL_PORT
+    _SUBSCRIPTION_PANEL_PORT = None
+
+
 def close_panel_chromium_profile() -> None:
-    """Закрыть окно панели подписки (--app с PANEL_APP_PROFILE_DIR) после перехода в лаунчер."""
+    """
+    Закрыть чёрное окно панели подписки: taskkill дерева PID, затем поиск по профилю и по URL 127.0.0.1:PORT.
+    """
+    global _PANEL_BROWSER_PROC
+    port = _SUBSCRIPTION_PANEL_PORT
+    proc = _PANEL_BROWSER_PROC
+    _PANEL_BROWSER_PROC = None
+
+    _no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    if proc is not None:
+        try:
+            if proc.poll() is None:
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    capture_output=True,
+                    timeout=18,
+                    creationflags=_no_win,
+                )
+                log(f"panel: taskkill pid={proc.pid}")
+        except Exception as e:
+            log(f"panel taskkill: {e!r}")
+
     if os.name != "nt":
         return
+
     try:
         marker = str(PANEL_APP_PROFILE_DIR.resolve()).replace("\\", "\\\\")
         ps_cmd = (
@@ -631,11 +671,37 @@ def close_panel_chromium_profile() -> None:
                 ps_cmd,
             ],
             capture_output=True,
-            timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=12,
+            creationflags=_no_win,
         )
     except Exception as e:
-        log(f"close_panel_chromium_profile: {e!r}")
+        log(f"close_panel profile ps: {e!r}")
+
+    if port is not None:
+        try:
+            port_esc = str(int(port))
+            ps_port = (
+                "$procs = Get-CimInstance Win32_Process | Where-Object { "
+                "$_.CommandLine -and ($_.Name -match '^(brave|chrome|msedge)\\.exe$') "
+                f"-and ($_.CommandLine -like '*127.0.0.1*{port_esc}*' -or $_.CommandLine -like '*localhost*{port_esc}*') }}; "
+                "foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }"
+            )
+            subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    ps_port,
+                ],
+                capture_output=True,
+                timeout=12,
+                creationflags=_no_win,
+            )
+            log(f"panel: killed by local port hint {port_esc}")
+        except Exception as e:
+            log(f"close_panel port ps: {e!r}")
 
 
 def _env_no_gui() -> bool:
@@ -986,6 +1052,9 @@ def show_nexus_bw_panel(
     port = server.server_address[1]
     log(f"NEXUS client panel: http://127.0.0.1:{port}/")
 
+    global _SUBSCRIPTION_PANEL_PORT
+    _SUBSCRIPTION_PANEL_PORT = port
+
     th = threading.Thread(target=server.serve_forever, daemon=True)
     th.start()
     panel_url = f"http://127.0.0.1:{port}/"
@@ -1002,6 +1071,8 @@ def show_nexus_bw_panel(
         pass
     th.join(timeout=3.0)
     close_panel_chromium_profile()
+    if result[0] is None:
+        clear_subscription_panel_port()
     return result[0]
 
 
@@ -1150,12 +1221,15 @@ def main():
     )
     log(f"launch_payload launched={launched} details={details[:200]!r}")
     if launched:
+        close_panel_chromium_profile()
+        clear_subscription_panel_port()
         if _env_no_gui():
             _msg("NEXUS", f"Подписка активна.\n{details}", 64)
         else:
             _msg("NEXUS", f"Запущено.\n{details}", 64)
         return 0
 
+    clear_subscription_panel_port()
     _msg(
         "NEXUS",
         "Подписка активна, но запуск не выполнен.\n\n"
