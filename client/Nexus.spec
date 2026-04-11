@@ -35,5 +35,4 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['C:\\Users\\developer\\Downloads\\file_type_script_icon_130178.ico'],
 )

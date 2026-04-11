@@ -29,6 +29,133 @@ DEFAULT_ACCOUNT_PASSWORD = "Artemka228zxc"
 NEXUS_UI_WIDTH = 920
 NEXUS_UI_HEIGHT = 580
 
+# Full automation: одно консольное окно, прогресс 0–100, без отдельных CMD/PowerShell.
+_fa_console_lock = threading.Lock()
+_fa_console_allocated = False
+_fa_automation_lock = threading.Lock()
+
+
+def _fa_attach_console():
+    """Выделить одно консольное окно процесса (после FreeConsole у лаунчера)."""
+    global _fa_console_allocated
+    if os.name != "nt":
+        return False
+    with _fa_console_lock:
+        if _fa_console_allocated:
+            return True
+        try:
+            import ctypes
+
+            k32 = ctypes.windll.kernel32
+            if k32.GetConsoleWindow():
+                _fa_console_allocated = True
+                return True
+            if not k32.AllocConsole():
+                return False
+            conout = open(
+                "CONOUT$",
+                "w",
+                encoding="utf-8",
+                errors="replace",
+                newline="",
+            )
+            sys.stdout = conout
+            sys.stderr = conout
+            _fa_console_allocated = True
+            return True
+        except Exception:
+            return False
+
+
+def _fa_release_console():
+    """Закрыть консоль автоматизации, вернуть тихий режим как после старта лаунчера."""
+    global _fa_console_allocated
+    if os.name != "nt":
+        return
+    with _fa_console_lock:
+        if not _fa_console_allocated:
+            return
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.FreeConsole()
+        except Exception:
+            pass
+        _fa_console_allocated = False
+        try:
+            dn = open(os.devnull, "w", encoding="utf-8")
+            sys.stdout = dn
+            sys.stderr = dn
+        except Exception:
+            pass
+
+
+def _fa_progress(pct: int, message: str) -> None:
+    pct = max(0, min(100, int(pct)))
+    msg = (message or "").replace("\r", " ").replace("\n", " ")[:78]
+    line = f"\r[NEXUS] {pct:3d}% — {msg:<78}"
+    try:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+def _fa_progress_ln(pct: int, message: str) -> None:
+    _fa_progress(pct, message)
+    try:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+def run_powershell_in_automation_console(script_text: str) -> int:
+    """
+    PowerShell в текущей консоли (без второго окна). Без UAC — если нужен admin, запусти Nexus.exe от администратора
+    или задай NEXUS_FA_ELEVATED_PS=1 (откроется отдельное окно с RunAs).
+    """
+    tmp_ps = os.path.join(
+        os.environ.get("TEMP", "C:/Windows/Temp"), "nexus_full_automation.ps1"
+    )
+    with open(tmp_ps, "w", encoding="utf-8-sig") as f:
+        f.write(script_text)
+    elevated = os.getenv("NEXUS_FA_ELEVATED_PS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    if elevated and os.name == "nt":
+        import ctypes
+
+        ctypes.windll.shell32.ShellExecuteW(
+            None,
+            "runas",
+            "powershell.exe",
+            f'-ExecutionPolicy Bypass -File "{tmp_ps}"',
+            None,
+            1,
+        )
+        return 0
+    r = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            tmp_ps,
+        ],
+        cwd=BASE_DIR,
+    )
+    return int(r.returncode or 0)
+
 
 def _detach_launcher_console():
     """
@@ -227,34 +354,64 @@ try {
 """
 
 def run_full_automation(skip_powershell=False, ps_script='', hot_words=''):
+    with _fa_automation_lock:
+        _run_full_automation_body(skip_powershell, ps_script, hot_words)
+
+
+def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words=''):
+    use_console = os.name == "nt" and _fa_attach_console()
+    err_note = ""
+
+    def _finish_ok():
+        _fa_progress_ln(100, "Готово. Окно закроется через пару секунд…")
+        time.sleep(2.2)
+        if use_console:
+            _fa_release_console()
+
+    def _finish_err(note: str):
+        _fa_progress_ln(0, note or "Ошибка.")
+        if use_console:
+            time.sleep(8.0)
+            _fa_release_console()
+
     try:
         add_log("Automation started", "INFO")
+        _fa_progress(0, "Старт full automation…")
         py_exe = get_console_python_exe()
 
-        # 1) Опционально: elevated PowerShell (скрипт, пустое окно или пропуск — крестик в UI).
+        # 1) PowerShell в этой же консоли (без второго окна), если не пропущен и есть текст скрипта.
         if not skip_powershell:
-            combined = build_combined_ps_script(ps_script, hot_words)
-            auto_input = build_ps_readhost_autoreply()
-            if combined.strip():
-                combined = auto_input + "\n\n" + combined
+            user_ps = build_combined_ps_script(ps_script, hot_words)
+            if user_ps.strip():
+                combined = build_ps_readhost_autoreply() + "\n\n" + user_ps
+                _fa_progress(8, "PowerShell (основной сценарий)…")
+                rc = run_powershell_in_automation_console(combined)
+                add_log(f"PowerShell finished rc={rc}", "OK" if rc == 0 else "INFO")
+                _fa_progress(22, "PowerShell завершён")
             else:
-                combined = auto_input
-            launch_admin_powershell_with_script(combined)
-            add_log("Admin PowerShell with script requested", "OK")
+                add_log("PowerShell: пустой скрипт, шаг пропущен", "INFO")
+                _fa_progress(22, "PowerShell пропущен (нет текста скрипта)")
         else:
             add_log("PowerShell step skipped (user closed dialog)", "INFO")
+            _fa_progress(22, "PowerShell пропущен (выбор в UI)")
 
-        # 2) Run mailbox registration and wait until user finishes.
+        # 2) Регистрация почты — тот же терминал, без нового CMD.
         if not os.path.exists(MAILBOX_SCRIPT):
             add_log("mailbox_register.py not found", "ERROR")
+            err_note = "Нет mailbox_register.py"
+            _finish_err(err_note)
             return
         env_mb = os.environ.copy()
         env_mb["NEXUS_ACCOUNTS_FILE"] = ACCOUNTS_FILE
+        _fa_progress(28, "Регистрация почты — следуйте подсказкам ниже…")
+        mailbox_kw: dict = {"cwd": BASE_DIR, "env": env_mb}
+        if os.name == "nt":
+            mailbox_kw["creationflags"] = (
+                0 if use_console else subprocess.CREATE_NEW_CONSOLE
+            )
         mailbox_proc = subprocess.Popen(
             [py_exe, MAILBOX_SCRIPT, "--auto-close"],
-            cwd=BASE_DIR,
-            env=env_mb,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
+            **mailbox_kw,
         )
         add_log("Mailbox registration launched", "OK")
         n_acc_before = len(load_accounts(ACCOUNTS_FILE))
@@ -266,8 +423,13 @@ def run_full_automation(skip_powershell=False, ps_script='', hot_words=''):
                 return 0.0
 
         mtime0 = _accounts_mtime()
+        tick = 28
+        while mailbox_proc.poll() is None:
+            time.sleep(0.45)
+            tick = min(52, tick + 1)
+            _fa_progress(tick, "Регистрация почты…")
         mailbox_proc.wait()
-        # Ждём появления новой строки в accounts.txt (сохранение может быть сразу после wait).
+        _fa_progress(55, "Почта: ожидание записи accounts.txt…")
         deadline = time.time() + 180.0
         while time.time() < deadline:
             acc = load_accounts(ACCOUNTS_FILE)
@@ -275,44 +437,71 @@ def run_full_automation(skip_powershell=False, ps_script='', hot_words=''):
                 break
             time.sleep(0.4)
 
-        # 3) Read latest mailbox account and run Cursor registration.
         mailbox_accounts = load_accounts(ACCOUNTS_FILE)
         if not mailbox_accounts:
             add_log("No mailbox accounts found after registration", "ERROR")
+            err_note = "Нет аккаунта почты после регистрации"
+            _finish_err(err_note)
             return
         latest_email = mailbox_accounts[-1].get("Email", "").strip()
         if not latest_email:
             add_log("Latest mailbox email is empty", "ERROR")
+            err_note = "Пустой email в последней записи"
+            _finish_err(err_note)
             return
 
-        # IMAP на новом ящике часто включается с задержкой — без паузы Cursor не получает код.
+        _fa_progress(58, "Пауза: синхронизация IMAP (12 с)…")
         add_log("Pause 12s: mailbox IMAP / sync…", "INFO")
-        time.sleep(12)
+        for sec in range(12):
+            time.sleep(1.0)
+            _fa_progress(58 + sec, f"Ожидание IMAP… {sec + 1}/12")
 
         save_automation_state(latest_email, DEFAULT_ACCOUNT_PASSWORD)
         add_log(f"Saved automation state for {latest_email}", "OK")
+        _fa_progress(72, "Сохранено состояние автоматизации")
 
         if not os.path.exists(CURSOR_SCRIPT):
             add_log("cursor.py not found", "ERROR")
+            err_note = "Нет cursor.py"
+            _finish_err(err_note)
             return
         cursor_cmd = [
-            py_exe, CURSOR_SCRIPT,
-            '--action', 'register',
-            '--email', latest_email,
-            '--cursor-pass', DEFAULT_ACCOUNT_PASSWORD,
-            '--mail-pass', DEFAULT_ACCOUNT_PASSWORD
+            py_exe,
+            CURSOR_SCRIPT,
+            "--action",
+            "register",
+            "--email",
+            latest_email,
+            "--cursor-pass",
+            DEFAULT_ACCOUNT_PASSWORD,
+            "--mail-pass",
+            DEFAULT_ACCOUNT_PASSWORD,
         ]
-        subprocess.Popen(cursor_cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        _fa_progress(78, f"Запуск Cursor-регистрации для {latest_email}…")
+        cursor_kw: dict = {"cwd": BASE_DIR}
+        if os.name == "nt":
+            cursor_kw["creationflags"] = (
+                0 if use_console else subprocess.CREATE_NEW_CONSOLE
+            )
+        subprocess.Popen(cursor_cmd, **cursor_kw)
         add_log(f"Cursor registration launched for {latest_email}", "OK")
+        _fa_progress(92, "Cursor-скрипт запущен в этом же окне")
 
-        # 4) Десктоп Cursor по желанию (по умолчанию не открываем — лишнее окно).
-        if os.getenv("NEXUS_OPEN_CURSOR_AFTER_AUTO", "").strip().lower() in ("1", "true", "yes", "on"):
+        if os.getenv("NEXUS_OPEN_CURSOR_AFTER_AUTO", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
             if launch_cursor_app():
                 add_log(f"Cursor app opened: {CURSOR_EXE_PATH}", "OK")
             else:
                 add_log(f"Cursor app not found: {CURSOR_EXE_PATH}", "ERROR")
+
+        _finish_ok()
     except Exception as e:
         add_log(f"Automation crashed: {e}", "ERROR")
+        _finish_err(str(e))
 
 def load_cursor_login_state():
     """email(lower) -> bool. Пустой файл — миграция по порядку в cursor_accounts.txt до CUTOFF_EMAIL_LOGGED_IN."""
