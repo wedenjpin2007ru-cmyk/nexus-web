@@ -101,12 +101,18 @@ def _fa_release_console():
                 pass
 
 
+def _fa_bar(pct: int) -> str:
+    w = 16
+    f = max(0, min(w, int(round(w * pct / 100.0))))
+    return "[" + "#" * f + "." * (w - f) + "]"
+
+
 def _fa_progress(pct: int, message: str) -> None:
-    """Строка отчёта (каждая с новой строки — удобно читать в одном терминале)."""
+    """Прогресс 0–100% + полоска; всё в одном терминале."""
     pct = max(0, min(100, int(pct)))
-    msg = (message or "").replace("\r", " ").replace("\n", " ")[:92]
+    msg = (message or "").replace("\r", " ").replace("\n", " ")[:88]
     try:
-        sys.stdout.write(f"\n  [{pct:3d}%] {msg}\n")
+        sys.stdout.write(f"\n  {_fa_bar(pct)} {pct:3d}%  {msg}\n")
         sys.stdout.flush()
     except Exception:
         pass
@@ -121,9 +127,18 @@ def _fa_report_banner():
         sys.stdout.write(
             "\n"
             + "=" * 60
-            + "\n  NEXUS — отчёт автоматизации (одно окно консоли)\n"
+            + "\n  NEXUS — один терминал до конца (Mailbox + Cursor)\n"
             + "=" * 60
             + "\n\n"
+            "  Пока не дойдет до 100%, окно не завершает цепочку.\n"
+            "  Отдельные CMD для почты/Cursor не открываются — всё здесь.\n\n"
+            "  Карта прогресса:\n"
+            "    0–22%   PowerShell (если есть сценарий)\n"
+            "   22–58%   Регистрация Mailbox.org (Brave отдельно — это браузер)\n"
+            "   58–74%   Пауза IMAP + сохранение состояния\n"
+            "   74–99%   Регистрация Cursor — ждём ПОЛНОГО завершения скрипта\n"
+            "      100%   Итог; при отдельном чёрном окне оно закроется само\n"
+            + "\n"
         )
         sys.stdout.flush()
     except Exception:
@@ -203,6 +218,16 @@ def _popen_console_flags():
     if _win_has_console_hwnd():
         return {"creationflags": 0}
     return {"creationflags": subprocess.CREATE_NEW_CONSOLE}
+
+
+def _fa_sub_kw(console_ready: bool):
+    """
+    Дочерние процессы full automation: строго та же консоль, если она уже есть
+    (в т.ч. после AllocConsole в начале FA — не плодим лишние CMD).
+    """
+    if os.name != "nt":
+        return {}
+    return {"creationflags": 0 if console_ready else subprocess.CREATE_NEW_CONSOLE}
 
 
 def _detach_launcher_console():
@@ -419,19 +444,24 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         try:
             sys.stdout.write(
                 "\n  ────────────────────────────────────────────────────────\n"
-                "  ИТОГ: цепочка лаунчера завершена (почта + запуск Cursor).\n"
-                "  Проверь вывод MAILBOX и CURSOR выше — там финальный статус.\n"
+                "  ИТОГ: Mailbox и Cursor отработали в ОДНОМ терминале (см. лог выше).\n"
                 "  ────────────────────────────────────────────────────────\n"
             )
             sys.stdout.flush()
         except Exception:
             pass
         if fa_used_alloc:
-            _fa_progress_ln(100, "Готово. Отдельное консольное окно закроется через пару секунд…")
-            time.sleep(2.2)
+            _fa_progress_ln(
+                100,
+                "Всё готово. Это окно само закроется через несколько секунд…",
+            )
+            time.sleep(5.0)
         else:
-            _fa_progress_ln(100, "Готово. Эта вкладка терминала остаётся открытой.")
-            time.sleep(0.4)
+            _fa_progress_ln(
+                100,
+                "Всё готово. Закрой вкладку терминала сам, когда просмотришь лог.",
+            )
+            time.sleep(1.2)
         if use_console:
             _fa_release_console()
 
@@ -478,7 +508,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             [py_exe, MAILBOX_SCRIPT, "--auto-close"],
             cwd=BASE_DIR,
             env=env_mb,
-            **_popen_console_flags(),
+            **_fa_sub_kw(use_console),
         )
         add_log("Mailbox registration launched", "OK")
         n_acc_before = len(load_accounts(ACCOUNTS_FILE))
@@ -499,8 +529,12 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             if now - _last_rep >= 4.0:
                 _last_rep = now
                 _fa_progress(tick, "Этап 2/4: регистрация почты ещё выполняется…")
-        mailbox_proc.wait()
-        _fa_progress(55, "Этап 2/4: ожидание записи accounts.txt")
+        mailbox_rc = mailbox_proc.wait()
+        if mailbox_rc != 0:
+            add_log(f"mailbox_register exit {mailbox_rc}", "ERROR")
+            _finish_err(f"Регистрация почты завершилась с кодом {mailbox_rc}")
+            return
+        _fa_progress(55, "Этап 2/4: Mailbox.org — скрипт завершён, проверяем accounts.txt")
         deadline = time.time() + 180.0
         while time.time() < deadline:
             acc = load_accounts(ACCOUNTS_FILE)
@@ -550,17 +584,27 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             DEFAULT_ACCOUNT_PASSWORD,
         ]
         _fa_progress(
-            78,
-            f"Этап 4/4: Cursor — регистрация для {latest_email} (лог ниже в этом окне)",
+            74,
+            f"Этап 4/4: Cursor — регистрация {latest_email} (ждём до конца, одно окно)",
         )
-        subprocess.Popen(
+        cur_run = subprocess.run(
             cursor_cmd,
             cwd=BASE_DIR,
             env=_fa_child_env(),
-            **_popen_console_flags(),
+            **_fa_sub_kw(use_console),
         )
-        add_log(f"Cursor registration launched for {latest_email}", "OK")
-        _fa_progress(92, "Этап 4/4: скрипт Cursor запущен (дождись завершения в логе выше/ниже)")
+        cur_rc = int(cur_run.returncode or 0)
+        add_log(
+            f"Cursor registration finished rc={cur_rc} for {latest_email}",
+            "OK" if cur_rc == 0 else "ERROR",
+        )
+        if cur_rc == 0:
+            _fa_progress(99, "Этап 4/4: Cursor завершён успешно")
+        else:
+            _fa_progress(
+                99,
+                f"Этап 4/4: Cursor завершился с кодом {cur_rc} — смотри сообщения выше",
+            )
 
         if os.getenv("NEXUS_OPEN_CURSOR_AFTER_AUTO", "").strip().lower() in (
             "1",

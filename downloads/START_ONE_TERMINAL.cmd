@@ -4,8 +4,8 @@ title NEXUS — один терминал
 cd /d "%~dp0"
 
 echo.
-echo  Запуск launcher.py в ЭТОМ окне (все логи mailbox/cursor — здесь).
-echo  Закрой окно, чтобы остановить лаунчер.
+echo  Один терминал: после Full Automation почта и Cursor идут здесь же до 100%%.
+echo  Отдельные CMD не открываются. Окно можно закрыть после завершения лаунчера.
 echo.
 
 py "%~dp0launcher.py" 2>nul
