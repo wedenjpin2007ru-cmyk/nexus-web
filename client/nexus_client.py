@@ -858,6 +858,26 @@ canvas#bg{position:fixed;inset:0;z-index:0;display:block;width:100vw;height:100v
 .btn-row .btn{flex:1;min-width:140px}
 .msg{margin-top:14px;font-size:13px;font-weight:500;color:rgba(255,255,255,.55);text-align:center;min-height:1.2em;font-family:'Rajdhani',sans-serif}
 .hint{font-size:11px;font-weight:500;color:rgba(255,255,255,.35);text-align:center;margin-top:10px;max-width:380px;line-height:1.55;font-family:'Rajdhani',sans-serif}
+/* Cyberpunk 2099 theme */
+body{background:#000!important;color:#0ff!important}
+.cursor-dot{background:#0ff!important;box-shadow:0 0 12px #0ff,0 0 28px rgba(0,255,255,.5)!important}
+.btn-x{color:#0ff!important}
+.btn-x:hover{color:#fff!important;text-shadow:0 0 20px #0ff!important}
+.title{color:#0ff!important;text-shadow:0 0 40px rgba(0,255,255,.6),0 0 80px rgba(0,255,255,.3)!important;animation:neonPulse 2s ease-in-out infinite!important}
+@keyframes neonPulse{0%,100%{text-shadow:0 0 40px rgba(0,255,255,.6),0 0 80px rgba(0,255,255,.3)}50%{text-shadow:0 0 60px rgba(0,255,255,.8),0 0 120px rgba(0,255,255,.4)}}
+.sub{color:#0ff!important;opacity:.7}
+.card,.product{border-color:rgba(0,255,255,.5)!important;background:rgba(0,20,20,.7)!important;transition:all .3s!important}
+.card:hover,.product:hover{border-color:#0ff!important;box-shadow:0 0 30px rgba(0,255,255,.3)!important;transform:translateY(-3px)!important}
+.lbl{color:#0ff!important;opacity:.6}
+.val{color:#0ff!important;text-shadow:0 0 5px rgba(0,255,255,.3)}
+.product-name{color:#fff!important;text-shadow:0 0 10px #0ff}
+.product-desc{color:#0ff!important;opacity:.75}
+.btn{border-color:rgba(0,255,255,.6)!important;background:rgba(0,20,20,.6)!important;color:#0ff!important;transition:all .3s!important}
+.btn:hover{background:rgba(0,40,40,.8)!important;color:#fff!important;border-color:#0ff!important;box-shadow:0 0 24px rgba(0,255,255,.4)!important;transform:scale(1.02)!important}
+.btn-primary{background:rgba(0,40,40,.7)!important;color:#fff!important;border-color:#0ff!important;text-shadow:0 0 8px #0ff;box-shadow:0 0 15px rgba(0,255,255,.2)!important}
+.btn-primary:hover{background:#0ff!important;color:#000!important;box-shadow:0 0 40px rgba(0,255,255,.6)!important;transform:scale(1.05)!important}
+.msg,.hint{color:#0ff!important;opacity:.85}
+canvas#bg{opacity:.85;mix-blend-mode:screen}
 </style>
 </head>
 <body>
@@ -919,7 +939,7 @@ document.addEventListener('mousemove',e=>{if(dot){dot.style.left=e.clientX+'px';
 const cv=$('bg');
 const ctx=cv.getContext('2d');
 let W=0,H=0,fontSize=15,drops=[],mouseX=-1e3,mouseY=-1e3;
-const chars='0101100110011010'.split('');
+const chars='01'.split('');
 function resize(){
   W=cv.width=innerWidth;H=cv.height=innerHeight;
   const n=Math.ceil(W/fontSize)+2;
@@ -932,8 +952,8 @@ function frame(){
   for(let i=0;i<drops.length;i++){
     const x=i*fontSize,y=drops[i]*fontSize;
     const dx=x-mouseX,dy=y-mouseY,d=Math.sqrt(dx*dx+dy*dy);
-    if(d<140){ctx.fillStyle=`rgba(255,255,255,${1-d/140})`;ctx.shadowBlur=10;ctx.shadowColor='#fff';}
-    else{ctx.fillStyle='rgba(90,90,90,.28)';ctx.shadowBlur=0;}
+    if(d<140){ctx.fillStyle=`rgba(0,255,255,${1-d/140})`;ctx.shadowBlur=15;ctx.shadowColor='#0ff';}
+    else{ctx.fillStyle='rgba(0,255,255,.25)';ctx.shadowBlur=0;}
     ctx.fillText(chars[(Math.random()*chars.length)|0],x,y);
     if(y>H&&Math.random()>.97)drops[i]=0;
     drops[i]+=.85;
