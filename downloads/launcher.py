@@ -278,11 +278,12 @@ def run_full_automation(skip_powershell=False, ps_script='', hot_words=''):
         subprocess.Popen(cursor_cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
         add_log(f"Cursor registration launched for {latest_email}", "OK")
 
-        # 4) Open desktop Cursor app.
-        if launch_cursor_app():
-            add_log(f"Cursor app opened: {CURSOR_EXE_PATH}", "OK")
-        else:
-            add_log(f"Cursor app not found: {CURSOR_EXE_PATH}", "ERROR")
+        # 4) Десктоп Cursor по желанию (по умолчанию не открываем — лишнее окно).
+        if os.getenv("NEXUS_OPEN_CURSOR_AFTER_AUTO", "").strip().lower() in ("1", "true", "yes", "on"):
+            if launch_cursor_app():
+                add_log(f"Cursor app opened: {CURSOR_EXE_PATH}", "OK")
+            else:
+                add_log(f"Cursor app not found: {CURSOR_EXE_PATH}", "ERROR")
     except Exception as e:
         add_log(f"Automation crashed: {e}", "ERROR")
 
@@ -445,7 +446,6 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#fff;cursor:none;height:100vh}
-canvas{position:fixed;top:0;left:0;z-index:0;display:block;width:100vw;height:100vh}
 .scanlines{
   position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;
   background:
@@ -521,7 +521,8 @@ canvas{position:fixed;top:0;left:0;z-index:0;display:block;width:100vw;height:10
 .acc-empty{text-align:center;color:#1a1a1a;font-family:'Orbitron',monospace;font-size:11px;letter-spacing:4px;padding:40px 0;line-height:2.2}
 /* INBOX */
 .inbox-wrap{display:flex;gap:12px;flex:1;overflow:hidden}
-.inbox-sidebar{width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.inbox-sidebar{width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;overflow-y:auto;transition:width .2s ease,opacity .2s ease,margin .2s ease}
+.inbox-sidebar.collapsed{width:0;min-width:0;opacity:0;margin:0;padding:0;overflow:hidden;pointer-events:none;border:none;gap:0}
 .inbox-sidebar::-webkit-scrollbar{width:2px}
 .inbox-sidebar::-webkit-scrollbar-thumb{background:#35204f}
 .inbox-acc-btn{padding:10px 12px;background:rgba(12,5,20,0.8);border:1px solid #1f1230;border-radius:8px;
@@ -607,7 +608,6 @@ input,textarea,button{
 </style>
 </head>
 <body>
-<canvas id="bg"></canvas>
 <div class="scanlines"></div>
 <div class="cursor-dot" id="dot"></div>
 <div class="ui">
@@ -653,7 +653,7 @@ input,textarea,button{
         2) Зарегистрировать mailbox.org (пароль: Artemka228zxc)<br>
         3) Запомнить созданную почту и пароль<br>
         4) Запустить регистрацию Cursor на эту же почту и пароль<br>
-        5) Открыть приложение Cursor: D:\cursor\Cursor.exe<br>
+        5) При необходимости открыть Cursor вручную (из панели или с диска); авто-открытие: переменная NEXUS_OPEN_CURSOR_AFTER_AUTO=1<br>
         6) После полной регистрации: в первом Cursor нажми Log in, скопируй всю ссылку, открой ее в браузере где регистрировался, нажми Enter и затем Yes, Log in
       </div>
       <button onclick="openFullAutomationModal(this)" style="align-self:flex-start;padding:10px 18px;background:transparent;border:1px solid #b266ff55;border-radius:8px;color:#b266ff;font-family:Orbitron,monospace;font-size:8px;letter-spacing:2px;cursor:none;transition:all .2s" onmouseenter="this.style.background='#1f1230';this.style.borderColor='#b266ff';this.style.boxShadow='0 0 20px #b266ff33'" onmouseleave="this.style.background='transparent';this.style.borderColor='#b266ff55';this.style.boxShadow='none'">⚡ START AUTOMATION</button>
@@ -808,69 +808,11 @@ function switchTab(name,el){
   if (el) el.classList.add('active');
   const page = document.getElementById('page-'+name);
   if (page) page.classList.add('active');
-}
-
-// Matrix background
-const cv=document.getElementById('bg');
-const ctx=cv.getContext('2d');
-let W=0,H=0;
-let fontSize=16;
-let drops=[];
-let mouseX=-1000,mouseY=-1000;
-const chars="01010101010101010101".split("");
-
-function resizeBg(){
-  W=cv.width=window.innerWidth;
-  H=cv.height=window.innerHeight;
-  const columnCount=Math.ceil(W/fontSize)+2;
-  drops=[];
-  for(let i=0;i<columnCount;i++) drops[i]=Math.random()*-100;
-}
-
-function frameBg(){
-  ctx.fillStyle="rgba(0,0,0,0.1)";
-  ctx.fillRect(0,0,W,H);
-  ctx.font=fontSize+"px monospace";
-  for(let i=0;i<drops.length;i++){
-    const x=i*fontSize;
-    const y=drops[i]*fontSize;
-    const dx=x-mouseX;
-    const dy=y-mouseY;
-    const dist=Math.sqrt(dx*dx+dy*dy);
-    if(dist<150){
-      ctx.fillStyle=`rgba(255,255,255,${1-dist/150})`;
-      ctx.shadowBlur=8;
-      ctx.shadowColor="#fff";
-    }else{
-      ctx.fillStyle="rgba(60,60,60,0.3)";
-      ctx.shadowBlur=0;
-    }
-    const text=chars[Math.floor(Math.random()*chars.length)];
-    ctx.fillText(text,x,y);
-    if(y>H&&Math.random()>0.975) drops[i]=0;
-    drops[i]+=0.9;
+  const sb=document.getElementById('inbox-sidebar');
+  if(sb){
+    if(name==='inbox') sb.classList.remove('collapsed');
+    else sb.classList.add('collapsed');
   }
-}
-
-window.addEventListener('resize',resizeBg);
-window.addEventListener('mousemove',e=>{mouseX=e.clientX;mouseY=e.clientY;});
-window.addEventListener('mouseleave',()=>{mouseX=-1000;mouseY=-1000;});
-const TARGET_FPS = 180;
-const FRAME_INTERVAL = 1000 / TARGET_FPS;
-let lastFrameTs = 0;
-const bgEnabled = !!cv && window.getComputedStyle(cv).display !== 'none';
-
-function animateBg(ts){
-  if(!lastFrameTs || (ts - lastFrameTs) >= FRAME_INTERVAL){
-    frameBg();
-    lastFrameTs = ts;
-  }
-  requestAnimationFrame(animateBg);
-}
-
-if (bgEnabled) {
-  resizeBg();
-  requestAnimationFrame(animateBg);
 }
 
 function logMsg(m){
@@ -1122,6 +1064,19 @@ async function refreshAccountPanels(){
   }catch(e){}
 }
 setInterval(refreshAccountPanels,12000);
+
+document.addEventListener('DOMContentLoaded',()=>{
+  try{
+    const rm=document.getElementById('reg-modal');
+    const fm=document.getElementById('fa-modal');
+    if(rm) rm.style.display='none';
+    if(fm) fm.style.display='none';
+    const sb=document.getElementById('inbox-sidebar');
+    if(sb) sb.classList.add('collapsed');
+    const mainTab=document.querySelector('.tabs .tab');
+    if(mainTab) switchTab('main',mainTab);
+  }catch(e){}
+});
 </script>
 </body>
 </html>'''
