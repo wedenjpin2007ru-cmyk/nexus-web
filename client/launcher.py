@@ -1712,6 +1712,10 @@ input:focus,textarea:focus{
         </div>
         <div class="status-body">
           <div class="status-row">
+            <span class="status-label">ACCOUNT</span>
+            <span class="status-value" id="system-account">—</span>
+          </div>
+          <div class="status-row">
             <span class="status-label">STATUS</span>
             <span class="status-value" id="system-status">READY</span>
           </div>
@@ -1902,6 +1906,23 @@ function tick(){
   document.getElementById('clock').textContent=n.toTimeString().slice(0,8)+'  '+n.toLocaleDateString('ru-RU');
 }
 tick();setInterval(tick,1000);
+
+// Subscription status update
+async function updateSubscriptionStatus(){
+  try{
+    const r=await fetch('/data/subscription');
+    if(!r.ok)return;
+    const d=await r.json();
+    if(!d||!d.ok)return;
+    const accEl=document.getElementById('system-account');
+    if(accEl){
+      accEl.textContent=d.email||'—';
+      accEl.style.fontSize=d.email&&d.email.length>25?'10px':'14px';
+    }
+  }catch(e){}
+}
+updateSubscriptionStatus();
+setInterval(updateSubscriptionStatus,15000);
 
 // Tabs
 function switchTab(name,el){
