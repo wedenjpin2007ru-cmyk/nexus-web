@@ -102,11 +102,11 @@ def _fa_release_console():
 
 
 def _fa_progress(pct: int, message: str) -> None:
+    """Строка отчёта (каждая с новой строки — удобно читать в одном терминале)."""
     pct = max(0, min(100, int(pct)))
-    msg = (message or "").replace("\r", " ").replace("\n", " ")[:78]
-    line = f"\r[NEXUS] {pct:3d}% — {msg:<78}"
+    msg = (message or "").replace("\r", " ").replace("\n", " ")[:92]
     try:
-        sys.stdout.write(line)
+        sys.stdout.write(f"\n  [{pct:3d}%] {msg}\n")
         sys.stdout.flush()
     except Exception:
         pass
@@ -114,11 +114,33 @@ def _fa_progress(pct: int, message: str) -> None:
 
 def _fa_progress_ln(pct: int, message: str) -> None:
     _fa_progress(pct, message)
+
+
+def _fa_report_banner():
     try:
-        sys.stdout.write("\n")
+        sys.stdout.write(
+            "\n"
+            + "=" * 60
+            + "\n  NEXUS — отчёт автоматизации (одно окно консоли)\n"
+            + "=" * 60
+            + "\n\n"
+        )
         sys.stdout.flush()
     except Exception:
         pass
+
+
+def _fa_child_env(extra=None):
+    """Окружение для mailbox_register / cursor: единый отчёт, без спама Node DEP*."""
+    env = os.environ.copy()
+    env["NEXUS_UNIFIED_REPORT"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
+    no = (env.get("NODE_OPTIONS") or "").strip()
+    if "--no-deprecation" not in no:
+        env["NODE_OPTIONS"] = f"{no} --no-deprecation".strip()
+    if extra:
+        env.update(extra)
+    return env
 
 
 def run_powershell_in_automation_console(script_text: str) -> int:
@@ -394,11 +416,21 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
     err_note = ""
 
     def _finish_ok():
+        try:
+            sys.stdout.write(
+                "\n  ────────────────────────────────────────────────────────\n"
+                "  ИТОГ: цепочка лаунчера завершена (почта + запуск Cursor).\n"
+                "  Проверь вывод MAILBOX и CURSOR выше — там финальный статус.\n"
+                "  ────────────────────────────────────────────────────────\n"
+            )
+            sys.stdout.flush()
+        except Exception:
+            pass
         if fa_used_alloc:
-            _fa_progress_ln(100, "Готово. Окно закроется через пару секунд…")
+            _fa_progress_ln(100, "Готово. Отдельное консольное окно закроется через пару секунд…")
             time.sleep(2.2)
         else:
-            _fa_progress_ln(100, "Готово.")
+            _fa_progress_ln(100, "Готово. Эта вкладка терминала остаётся открытой.")
             time.sleep(0.4)
         if use_console:
             _fa_release_console()
@@ -411,7 +443,8 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
 
     try:
         add_log("Automation started", "INFO")
-        _fa_progress(0, "Старт full automation…")
+        _fa_report_banner()
+        _fa_progress(0, "Старт full automation")
         py_exe = get_console_python_exe()
 
         # 1) PowerShell в этой же консоли (без второго окна), если не пропущен и есть текст скрипта.
@@ -419,16 +452,16 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             user_ps = build_combined_ps_script(ps_script, hot_words)
             if user_ps.strip():
                 combined = build_ps_readhost_autoreply() + "\n\n" + user_ps
-                _fa_progress(8, "PowerShell (основной сценарий)…")
+                _fa_progress(8, "Этап 1/4: PowerShell (ваш сценарий), вывод ниже")
                 rc = run_powershell_in_automation_console(combined)
                 add_log(f"PowerShell finished rc={rc}", "OK" if rc == 0 else "INFO")
-                _fa_progress(22, "PowerShell завершён")
+                _fa_progress(22, "Этап 1/4: PowerShell завершён")
             else:
                 add_log("PowerShell: пустой скрипт, шаг пропущен", "INFO")
-                _fa_progress(22, "PowerShell пропущен (нет текста скрипта)")
+                _fa_progress(22, "Этап 1/4: PowerShell пропущен (нет текста скрипта)")
         else:
             add_log("PowerShell step skipped (user closed dialog)", "INFO")
-            _fa_progress(22, "PowerShell пропущен (выбор в UI)")
+            _fa_progress(22, "Этап 1/4: PowerShell пропущен (выбор в UI)")
 
         # 2) Регистрация почты — тот же терминал, без нового CMD.
         if not os.path.exists(MAILBOX_SCRIPT):
@@ -436,9 +469,11 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             err_note = "Нет mailbox_register.py"
             _finish_err(err_note)
             return
-        env_mb = os.environ.copy()
-        env_mb["NEXUS_ACCOUNTS_FILE"] = ACCOUNTS_FILE
-        _fa_progress(28, "Регистрация почты — следуйте подсказкам ниже…")
+        env_mb = _fa_child_env({"NEXUS_ACCOUNTS_FILE": ACCOUNTS_FILE})
+        _fa_progress(
+            28,
+            "Этап 2/4: Mailbox.org — ниже лог скрипта (Brave + капча вручную при запросе)",
+        )
         mailbox_proc = subprocess.Popen(
             [py_exe, MAILBOX_SCRIPT, "--auto-close"],
             cwd=BASE_DIR,
@@ -456,12 +491,16 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
 
         mtime0 = _accounts_mtime()
         tick = 28
+        _last_rep = 0.0
         while mailbox_proc.poll() is None:
             time.sleep(0.45)
             tick = min(52, tick + 1)
-            _fa_progress(tick, "Регистрация почты…")
+            now = time.time()
+            if now - _last_rep >= 4.0:
+                _last_rep = now
+                _fa_progress(tick, "Этап 2/4: регистрация почты ещё выполняется…")
         mailbox_proc.wait()
-        _fa_progress(55, "Почта: ожидание записи accounts.txt…")
+        _fa_progress(55, "Этап 2/4: ожидание записи accounts.txt")
         deadline = time.time() + 180.0
         while time.time() < deadline:
             acc = load_accounts(ACCOUNTS_FILE)
@@ -482,15 +521,16 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             _finish_err(err_note)
             return
 
-        _fa_progress(58, "Пауза: синхронизация IMAP (12 с)…")
+        _fa_progress(58, "Этап 3/4: пауза 12 с — синхронизация IMAP для кода Cursor")
         add_log("Pause 12s: mailbox IMAP / sync…", "INFO")
         for sec in range(12):
             time.sleep(1.0)
-            _fa_progress(58 + sec, f"Ожидание IMAP… {sec + 1}/12")
+            if sec % 3 == 0 or sec == 11:
+                _fa_progress(58 + sec // 2, f"Этап 3/4: IMAP… {sec + 1}/12 с")
 
         save_automation_state(latest_email, DEFAULT_ACCOUNT_PASSWORD)
         add_log(f"Saved automation state for {latest_email}", "OK")
-        _fa_progress(72, "Сохранено состояние автоматизации")
+        _fa_progress(72, "Состояние автоматизации сохранено")
 
         if not os.path.exists(CURSOR_SCRIPT):
             add_log("cursor.py not found", "ERROR")
@@ -509,10 +549,18 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             "--mail-pass",
             DEFAULT_ACCOUNT_PASSWORD,
         ]
-        _fa_progress(78, f"Запуск Cursor-регистрации для {latest_email}…")
-        subprocess.Popen(cursor_cmd, cwd=BASE_DIR, **_popen_console_flags())
+        _fa_progress(
+            78,
+            f"Этап 4/4: Cursor — регистрация для {latest_email} (лог ниже в этом окне)",
+        )
+        subprocess.Popen(
+            cursor_cmd,
+            cwd=BASE_DIR,
+            env=_fa_child_env(),
+            **_popen_console_flags(),
+        )
         add_log(f"Cursor registration launched for {latest_email}", "OK")
-        _fa_progress(92, "Cursor-скрипт запущен в этом же окне")
+        _fa_progress(92, "Этап 4/4: скрипт Cursor запущен (дождись завершения в логе выше/ниже)")
 
         if os.getenv("NEXUS_OPEN_CURSOR_AFTER_AUTO", "").strip().lower() in (
             "1",
