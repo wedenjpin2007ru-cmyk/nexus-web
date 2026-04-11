@@ -18,7 +18,7 @@ import ctypes
 
 LaunchMode = Literal["auto", "cmd", "launcher"]
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11i")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11j")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 # Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
@@ -602,8 +602,8 @@ PANEL_APP_PROFILE_DIR = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "panel_
 _PANEL_BROWSER_PROC: subprocess.Popen | None = None
 _SUBSCRIPTION_PANEL_PORT: int | None = None
 # Компактное окно по центру экрана (как у launcher.py после снятия kiosk).
-PANEL_WINDOW_W = 880
-PANEL_WINDOW_H = 540
+PANEL_WINDOW_W = 1020
+PANEL_WINDOW_H = 620
 
 
 def _panel_centered_window_args() -> tuple[int, int, int, int]:

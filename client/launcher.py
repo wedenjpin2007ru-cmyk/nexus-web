@@ -27,8 +27,8 @@ CURSOR_EXE_PATH = r"D:\cursor\Cursor.exe"
 PORT = 7331
 DEFAULT_ACCOUNT_PASSWORD = "Artemka228zxc"
 # Окно UI: по центру экрана, компактнее чем полноэкранный kiosk.
-NEXUS_UI_WIDTH = 920
-NEXUS_UI_HEIGHT = 580
+NEXUS_UI_WIDTH = 1040
+NEXUS_UI_HEIGHT = 720
 
 # Full automation: одно консольное окно, прогресс 0–100, без отдельных CMD/PowerShell.
 _fa_console_lock = threading.Lock()
@@ -46,6 +46,15 @@ _ACTIVITY_PCT = 0
 _ACTIVITY_PHASE = ""
 _ACTIVITY_BUSY = False
 _ACTIVITY_TASK = ""
+# Шаги Full Automation для панели (как чеклист)
+_ACTIVITY_FA_STEPS: list[dict[str, str]] = []
+_FA_STEP_LABELS = (
+    "1. PowerShell",
+    "2. Mailbox.org (общий Brave)",
+    "3. IMAP / ожидание письма",
+    "4. Cursor в том же Brave",
+    "5. Завершение",
+)
 
 
 def activity_set_progress(pct: int, phase: str) -> None:
@@ -74,6 +83,42 @@ def activity_set_busy(busy: bool, task: str = "") -> None:
         _ACTIVITY_TASK = (task or "")[:120]
 
 
+def activity_reset_fa_steps() -> None:
+    global _ACTIVITY_FA_STEPS
+    with _ACTIVITY_LOCK:
+        _ACTIVITY_FA_STEPS = [
+            {"label": L, "status": "pending"} for L in _FA_STEP_LABELS
+        ]
+
+
+def activity_clear_fa_steps() -> None:
+    global _ACTIVITY_FA_STEPS
+    with _ACTIVITY_LOCK:
+        _ACTIVITY_FA_STEPS = []
+
+
+def activity_fa_set_step(idx: int, status: str) -> None:
+    """status: pending | active | done | error"""
+    st = (status or "pending").strip().lower()
+    with _ACTIVITY_LOCK:
+        for i, row in enumerate(_ACTIVITY_FA_STEPS):
+            if i < idx:
+                if row["status"] != "error":
+                    row["status"] = "done"
+            elif i == idx:
+                row["status"] = st
+            elif i > idx and row["status"] == "active":
+                row["status"] = "pending"
+
+
+def activity_fa_mark_error() -> None:
+    with _ACTIVITY_LOCK:
+        for row in _ACTIVITY_FA_STEPS:
+            if row["status"] == "active":
+                row["status"] = "error"
+                break
+
+
 def activity_snapshot() -> dict:
     with _ACTIVITY_LOCK:
         return {
@@ -83,6 +128,7 @@ def activity_snapshot() -> dict:
             "busy": _ACTIVITY_BUSY,
             "task": _ACTIVITY_TASK,
             "lines": list(_ACTIVITY_LINES),
+            "steps": [dict(x) for x in _ACTIVITY_FA_STEPS],
         }
 
 
@@ -120,6 +166,42 @@ def _start_stdout_drain(proc: subprocess.Popen, tag: str) -> threading.Thread:
     return th
 
 
+def _argv_python_force_unbuffered(argv: list) -> list:
+    """Вставить -u после python.exe, чтобы строки шли в лайв (не ждать конца процесса)."""
+    if not argv or len(argv) < 2:
+        return argv
+    if argv[1] == "-u":
+        return argv
+    exe = os.path.basename(str(argv[0])).lower()
+    if exe in ("python.exe", "python3.exe", "pythonw.exe"):
+        return [argv[0], "-u"] + list(argv[1:])
+    return argv
+
+
+def resolve_child_python_exe() -> str:
+    """Тот же python.exe, что и лаунчер — без py.exe (лишние окна CMD на части систем)."""
+    ex = (sys.executable or "").strip()
+    if ex and os.path.isfile(ex):
+        base = os.path.basename(ex).lower()
+        if base == "python.exe":
+            return ex
+        if base == "pythonw.exe":
+            cand = os.path.join(os.path.dirname(ex), "python.exe")
+            if os.path.isfile(cand):
+                return cand
+    return get_console_python_exe()
+
+
+def _normalize_subprocess_python_argv(argv: list) -> list:
+    av = list(argv)
+    if not av:
+        return av
+    b = os.path.basename(str(av[0])).lower()
+    if b in ("py.exe", "py3.exe"):
+        av[0] = resolve_child_python_exe()
+    return _argv_python_force_unbuffered(av)
+
+
 def spawn_python_logged(argv: list, cwd: str, env: dict, task_name: str) -> None:
     """Запуск Python-скрипта без окна CMD; вывод — в панель ACTIVITY."""
 
@@ -127,8 +209,9 @@ def spawn_python_logged(argv: list, cwd: str, env: dict, task_name: str) -> None
         activity_set_busy(True, task_name)
         try:
             activity_append(f"—— старт: {task_name} ——", "run")
+            cmd = _normalize_subprocess_python_argv(list(argv))
             kw = dict(_subprocess_capture_kw(), cwd=cwd, env=env)
-            proc = subprocess.Popen(argv, **kw)
+            proc = subprocess.Popen(cmd, **kw)
             th = _start_stdout_drain(proc, task_name)
             rc = int(proc.wait() or 0)
             th.join(timeout=5.0)
@@ -512,20 +595,8 @@ def get_console_python_exe():
 
 
 def _fa_resolve_python_exe():
-    """
-    Для Full Automation — тот же python.exe, что и лаунчер, без цепочки через py.exe
-    (иначе на части систем дочерний процесс получает отдельную консоль).
-    """
-    ex = (sys.executable or "").strip()
-    if ex and os.path.isfile(ex):
-        base = os.path.basename(ex).lower()
-        if base == "python.exe":
-            return ex
-        if base == "pythonw.exe":
-            cand = os.path.join(os.path.dirname(ex), "python.exe")
-            if os.path.isfile(cand):
-                return cand
-    return get_console_python_exe()
+    """Алиас для Full Automation — см. resolve_child_python_exe."""
+    return resolve_child_python_exe()
 
 
 def launch_admin_powershell_detached():
@@ -673,6 +744,8 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
 
     try:
         add_log("Automation started", "INFO")
+        activity_reset_fa_steps()
+        activity_fa_set_step(0, "active")
         _fa_report_banner()
         _fa_progress(0, "Старт full automation")
         py_exe = _fa_resolve_python_exe()
@@ -693,10 +766,14 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             add_log("PowerShell step skipped (user closed dialog)", "INFO")
             _fa_progress(22, "Этап 1/4: PowerShell пропущен (выбор в UI)")
 
+        activity_fa_set_step(0, "done")
+        activity_fa_set_step(1, "active")
+
         # 2) Регистрация почты — тот же терминал, без нового CMD.
         if not os.path.exists(MAILBOX_SCRIPT):
             add_log("mailbox_register.py not found", "ERROR")
             err_note = "Нет mailbox_register.py"
+            activity_fa_mark_error()
             _finish_err(err_note)
             return
         _fa_progress(
@@ -712,7 +789,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             env=env_mb,
         )
         mailbox_proc = subprocess.Popen(
-            [py_exe, MAILBOX_SCRIPT, "--auto-close"],
+            _argv_python_force_unbuffered([py_exe, MAILBOX_SCRIPT, "--auto-close"]),
             **mailbox_kw,
         )
         _mb_drain = _start_stdout_drain(mailbox_proc, "mailbox")
@@ -738,8 +815,11 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         _mb_drain.join(timeout=8.0)
         if mailbox_rc != 0:
             add_log(f"mailbox_register exit {mailbox_rc}", "ERROR")
+            activity_fa_mark_error()
             _finish_err(f"Регистрация почты завершилась с кодом {mailbox_rc}")
             return
+        activity_fa_set_step(1, "done")
+        activity_fa_set_step(2, "active")
         _fa_progress(55, "Этап 2/4: Mailbox.org — скрипт завершён, проверяем accounts.txt")
         deadline = time.time() + 180.0
         while time.time() < deadline:
@@ -752,12 +832,14 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         if not mailbox_accounts:
             add_log("No mailbox accounts found after registration", "ERROR")
             err_note = "Нет аккаунта почты после регистрации"
+            activity_fa_mark_error()
             _finish_err(err_note)
             return
         latest_email = mailbox_accounts[-1].get("Email", "").strip()
         if not latest_email:
             add_log("Latest mailbox email is empty", "ERROR")
             err_note = "Пустой email в последней записи"
+            activity_fa_mark_error()
             _finish_err(err_note)
             return
 
@@ -775,9 +857,13 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         add_log(f"Saved automation state for {latest_email}", "OK")
         _fa_progress(72, "Состояние автоматизации сохранено")
 
+        activity_fa_set_step(2, "done")
+        activity_fa_set_step(3, "active")
+
         if not os.path.exists(CURSOR_SCRIPT):
             add_log("cursor.py not found", "ERROR")
             err_note = "Нет cursor.py"
+            activity_fa_mark_error()
             _finish_err(err_note)
             return
         cursor_cmd = [
@@ -801,7 +887,10 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             cwd=BASE_DIR,
             env=_fa_child_env(_fa_shared_brave_env()),
         )
-        cur_proc = subprocess.Popen(cursor_cmd, **cur_kw)
+        cur_proc = subprocess.Popen(
+            _argv_python_force_unbuffered(cursor_cmd),
+            **cur_kw,
+        )
         _cur_drain = _start_stdout_drain(cur_proc, "cursor")
         cur_rc = int(cur_proc.wait() or 0)
         _cur_drain.join(timeout=8.0)
@@ -811,7 +900,10 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         )
         if cur_rc == 0:
             _fa_progress(99, "Этап 4/4: Cursor завершён успешно")
+            activity_fa_set_step(3, "done")
+            activity_fa_set_step(4, "done")
         else:
+            activity_fa_set_step(3, "error")
             _fa_progress(
                 99,
                 f"Этап 4/4: Cursor завершился с кодом {cur_rc} — смотри сообщения выше",
@@ -831,6 +923,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         _finish_ok()
     except Exception as e:
         add_log(f"Automation crashed: {e}", "ERROR")
+        activity_fa_mark_error()
         _finish_err(str(e))
     finally:
         _FA_PRINT_TO_CONSOLE = False
@@ -994,6 +1087,17 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#fff;cursor:none;height:100vh}
+#matrix-bg{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;opacity:.38;pointer-events:none}
+.fa-vignette{position:fixed;inset:0;z-index:2;pointer-events:none;background:radial-gradient(ellipse at center,transparent 0%,rgba(0,0,0,.88) 100%)}
+.fa-noise{position:fixed;inset:-50%;z-index:3;pointer-events:none;opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation:fa-grain .8s steps(2) infinite}
+@keyframes fa-grain{0%,100%{transform:translate(0,0)}25%{transform:translate(-2%,2%)}50%{transform:translate(2%,-1%)}75%{transform:translate(-1%,-2%)}}
+.activity-steps{font-size:9px;line-height:1.4;margin:2px 0 4px;font-family:'Orbitron',monospace;letter-spacing:.04em;display:flex;flex-direction:column;gap:2px;max-height:76px;overflow-y:auto;padding-right:2px}
+.activity-step{opacity:.45;display:flex;gap:6px;align-items:baseline}
+.activity-step.active{opacity:1;font-weight:700}
+.activity-step.done{opacity:.72}
+.activity-step.error{opacity:1;color:#fcc}
 .scanlines{
   position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;
   background:
@@ -1013,7 +1117,17 @@ body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#ff
     radial-gradient(ellipse 50% 70% at 80% 80%, rgba(80,10,120,0.22) 0%, transparent 60%),
     radial-gradient(ellipse 40% 40% at 60% 50%, rgba(160,80,220,0.08) 0%, transparent 55%);
 }
-.ui{position:relative;z-index:10;display:flex;flex-direction:column;height:100vh;padding:0 40px 16px}
+.ui{position:relative;z-index:10;display:flex;flex-direction:column;height:100vh;padding:0 24px 10px;overflow:hidden}
+.ui-top{flex-shrink:0}
+.ui-mid{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.ui-mid .page{display:none !important;flex:1;min-height:0;overflow:hidden;flex-direction:column}
+.ui-mid .page.active{display:flex !important}
+.ui-log{
+  flex-shrink:0;display:flex;flex-direction:column;gap:5px;
+  border-top:2px solid rgba(255,255,255,.55)!important;padding-top:10px;margin-top:4px;
+  min-height:155px;max-height:40vh;background:rgba(8,8,8,.97)!important;z-index:25;
+  box-shadow:0 -8px 32px rgba(0,0,0,.95)!important;
+}
 .header{display:flex;align-items:center;justify-content:space-between;padding:16px 0 0}
 .status{display:flex;align-items:center;gap:8px;font-size:11px;color:#444;letter-spacing:2px}
 .sdot{width:7px;height:7px;border-radius:50%;background:#b266ff;box-shadow:0 0 8px #b266ff;animation:blink 1.5s infinite}
@@ -1032,8 +1146,6 @@ body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#ff
   cursor:none;color:#444;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s,border-color .2s}
 .tab:hover{color:#b266ff}
 .tab.active{color:#b266ff;border-bottom-color:#b266ff}
-.page{display:none;flex:1;overflow:hidden}
-.page.active{display:flex;flex-direction:column}
 /* MAIN */
 .cards{display:grid;grid-template-columns:repeat(3,minmax(220px,280px));gap:18px;width:100%;max-width:1000px;margin:0 auto;justify-content:center}
 .card{height:120px;border-radius:18px;background:transparent;border:1px solid rgba(255,255,255,0.1);
@@ -1100,13 +1212,15 @@ body{background:#000;overflow:hidden;font-family:'Rajdhani',sans-serif;color:#ff
 .msg-code-copy:hover{color:#b266ff}
 .inbox-empty{text-align:center;color:#1a1a1a;font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;padding:40px 0}
 /* LOG */
-.log-wrap{margin-top:auto;padding-top:8px}
-.log-label{font-size:8px;letter-spacing:4px;color:#b266ff33;margin-bottom:3px}
+.log-label{font-size:9px;letter-spacing:4px;color:#b266ff33;margin-bottom:2px;font-weight:600}
 .log-box{background:rgba(8,4,14,0.95);border:1px solid #180d25;border-radius:5px;
-  padding:6px 12px;font-family:'Courier New',monospace;font-size:9px;color:#c997ff;
+  padding:6px 10px;font-family:'Courier New',monospace;font-size:9px;color:#c997ff;
   min-height:28px;max-height:28px;overflow:hidden;letter-spacing:1px}
-.log-box.log-status{min-height:32px;max-height:44px}
-.log-box.log-scroll{min-height:90px;max-height:min(200px,28vh);max-width:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:9px;line-height:1.35}
+.log-box.log-status{min-height:34px;max-height:48px}
+.activity-progress-track{width:100%;height:8px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden;border:1px solid rgba(255,255,255,.35)}
+.activity-progress-fill{height:100%;width:0%;background:#fff;border-radius:3px;transition:width .25s ease}
+.log-box.log-scroll{min-height:100px;flex:1;max-height:none;max-width:100%;overflow-y:auto;overflow-x:hidden;white-space:pre-wrap;word-break:break-word;font-size:10px;line-height:1.4;margin:0}
+#activity-log{color:#e8e8e8 !important}
 
 /* Monochrome theme: black + white only */
 body{background:#000 !important;color:#fff !important}
@@ -1155,12 +1269,21 @@ input,textarea,button{
   background:#000 !important;
   box-shadow:none !important;
 }
+#nexus-log-dock{
+  box-shadow:0 -10px 36px rgba(0,0,0,.98)!important;
+  border-top:2px solid rgba(255,255,255,.65)!important;
+  background:rgba(5,5,5,.99)!important;
+}
 </style>
 </head>
 <body>
+<canvas id="matrix-bg" aria-hidden="true"></canvas>
+<div class="fa-vignette" aria-hidden="true"></div>
+<div class="fa-noise" aria-hidden="true"></div>
 <div class="scanlines"></div>
 <div class="cursor-dot" id="dot"></div>
 <div class="ui">
+  <div class="ui-top">
   <div class="header">
     <div class="status"><div class="sdot"></div><span id="clock">--:--:--</span></div>
     <div class="close-btn" onclick="fetch('/run?action=exit')">✕</div>
@@ -1177,7 +1300,9 @@ input,textarea,button{
     <div class="tab" onclick="switchTab('inbox',this);initInbox()">// INBOX</div>
     <div class="tab" onclick="switchTab('psscripts',this);loadPsScripts()">// PS SCRIPTS</div>
   </div>
+  </div>
 
+  <div class="ui-mid">
   <!-- MAIN -->
   <div class="page active" id="page-main">
     <div class="cards">
@@ -1257,15 +1382,19 @@ input,textarea,button{
       <div style="color:#1a1a1a;font-family:Orbitron,monospace;font-size:9px;letter-spacing:3px;padding:20px;grid-column:1/-1">ЗАГРУЗКА...</div>
     </div>
   </div>
+  </div>
 
-  <div class="log-wrap">
+  <div class="ui-log" id="nexus-log-dock">
     <div class="log-label">// СТАТУС</div>
-    <div id="log" class="log-box log-status">&gt; …</div>
+    <div id="log" class="log-box log-status">&gt; панель активна — жду команды</div>
     <div class="log-label">// ПРОГРЕСС</div>
-    <div id="activity-bar" style="font-family:Orbitron,monospace;font-size:10px;letter-spacing:3px;margin-bottom:2px">0%</div>
-    <div id="activity-phase" style="font-size:9px;line-height:1.45;opacity:.9;margin-bottom:6px"></div>
-    <div class="log-label">// ЛОГ ЗАПУСКОВ</div>
-    <pre id="activity-log" class="log-box log-scroll"></pre>
+    <div class="activity-progress-track"><div id="activity-bar-fill" class="activity-progress-fill"></div></div>
+    <div id="activity-bar" style="font-family:Orbitron,monospace;font-size:10px;letter-spacing:3px;margin-top:2px">0%</div>
+    <div id="activity-phase" style="font-size:10px;line-height:1.45;margin-bottom:2px"></div>
+    <div class="log-label">// ЭТАПЫ (FULL AUTO)</div>
+    <div id="activity-steps" class="activity-steps"></div>
+    <div class="log-label">// ЛОГ (почта / Cursor / Full Auto)</div>
+    <pre id="activity-log" class="log-box log-scroll">ожидание данных с сервера…</pre>
   </div>
 
 </div>
@@ -1628,24 +1757,74 @@ async function refreshAccountPanels(){
 setInterval(refreshAccountPanels,12000);
 
 function pollActivity(){
-  fetch('/data/activity').then(r=>r.json()).then(d=>{
+  fetch('/data/activity',{cache:'no-store'}).then(r=>{
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(d=>{
     if(!d||!d.ok)return;
     const bar=document.getElementById('activity-bar');
+    const fill=document.getElementById('activity-bar-fill');
     const ph=document.getElementById('activity-phase');
     const pre=document.getElementById('activity-log');
-    if(bar)bar.textContent=(d.busy?'▶ ':'')+String(d.pct)+'%';
+    const st=document.getElementById('activity-steps');
+    const pct=Math.max(0,Math.min(100,parseInt(d.pct,10)||0));
+    if(bar)bar.textContent=(d.busy?'▶ ':'')+String(pct)+'%';
+    if(fill)fill.style.width=pct+'%';
     if(ph){
       const t=(d.task?'['+d.task+'] ':'')+(d.phase||'');
       ph.textContent=t||'—';
     }
+    if(st&&Array.isArray(d.steps)&&d.steps.length){
+      st.innerHTML=d.steps.map(s=>{
+        const cls='activity-step '+(s.status||'pending');
+        const mark=s.status==='done'?'✓':(s.status==='active'?'▶':(s.status==='error'?'✕':'○'));
+        return '<div class="'+cls+'"><span>'+mark+'</span><span>'+String(s.label||'').replace(/</g,'&lt;')+'</span></div>';
+      }).join('');
+    }else if(st)st.innerHTML='';
     if(pre&&Array.isArray(d.lines)){
-      pre.textContent=d.lines.slice(-120).join('\n');
+      const t=d.lines.slice(-150).join('\n');
+      if(t.length)pre.textContent=t;
       pre.scrollTop=pre.scrollHeight;
     }
-  }).catch(()=>{});
+  }).catch(()=>{
+    const pre=document.getElementById('activity-log');
+    if(pre&&pre.textContent.indexOf('ожидание')===0)pre.textContent='нет связи с /data/activity — перезапусти лаунчер';
+  });
 }
 setInterval(pollActivity,450);
 pollActivity();
+
+(function nexusMatrixBg(){
+  const cv=document.getElementById('matrix-bg');
+  if(!cv)return;
+  const ctx=cv.getContext('2d');
+  let W=0,H=0,fontSize=14,drops=[],mouseX=-1e3,mouseY=-1e3;
+  const chars='0101100110011010'.split('');
+  function resize(){
+    W=cv.width=innerWidth;H=cv.height=innerHeight;
+    const n=Math.ceil(W/fontSize)+2;
+    drops=[];for(let i=0;i<n;i++)drops[i]=Math.random()*-80;
+  }
+  function frame(){
+    ctx.fillStyle='rgba(0,0,0,.12)';
+    ctx.fillRect(0,0,W,H);
+    ctx.font=fontSize+'px monospace';
+    for(let i=0;i<drops.length;i++){
+      const x=i*fontSize,y=drops[i]*fontSize;
+      const dx=x-mouseX,dy=y-mouseY,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<130){ctx.fillStyle='rgba(255,255,255,'+Math.max(0,1-d/130)+')';ctx.shadowBlur=8;ctx.shadowColor='#fff';}
+      else{ctx.fillStyle='rgba(100,100,100,.22)';ctx.shadowBlur=0;}
+      ctx.fillText(chars[(Math.random()*chars.length)|0],x,y);
+      if(y>H&&Math.random()>.975)drops[i]=0;
+      drops[i]+=.82;
+    }
+  }
+  addEventListener('resize',resize);
+  addEventListener('mousemove',e=>{mouseX=e.clientX;mouseY=e.clientY;});
+  addEventListener('mouseleave',()=>{mouseX=-1e3;mouseY=-1e3;});
+  resize();
+  (function loop(){frame();requestAnimationFrame(loop);})();
+})();
 
 document.addEventListener('DOMContentLoaded',()=>{
   try{
@@ -1696,7 +1875,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _json(self, data):
         body = json.dumps(data, ensure_ascii=False).encode()
-        self._resp(200, 'application/json', body)
+        self.send_response(200)
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self):
         if self.path.startswith('/download/'):
@@ -1746,7 +1929,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._resp(500, 'text/plain;charset=utf-8', b'gif read error')
             else:
                 self._resp(404, 'text/plain;charset=utf-8', b'gif not found')
-        elif self.path == '/data/activity':
+        elif self.path.split("?", 1)[0] == "/data/activity":
             self._json(activity_snapshot())
 
         elif self.path == '/data/accounts':
@@ -1802,7 +1985,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             elif action in ('cursor_register','cursor_delete'):
                 if os.path.exists(CURSOR_SCRIPT):
-                    py = get_console_python_exe()
+                    py = resolve_child_python_exe()
+                    cur_env = _fa_child_env(_fa_shared_brave_env())
                     if action == 'cursor_register' and email_:
                         cursor_pass = params.get('cursor_pass',[''])[0] or DEFAULT_ACCOUNT_PASSWORD
                         mail_pass   = params.get('mail_pass',[''])[0] or DEFAULT_ACCOUNT_PASSWORD
@@ -1813,14 +1997,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                '--mail-pass', mail_pass]
                     else:
                         cmd = [py, CURSOR_SCRIPT, '--action', 'delete']
-                    spawn_python_logged(cmd, BASE_DIR, _fa_child_env(), "cursor")
+                    spawn_python_logged(cmd, BASE_DIR, cur_env, "cursor")
                     ok = True
                 else: error = 'cursor.py not found!'
 
             elif action == 'mailbox_register':
                 if os.path.exists(MAILBOX_SCRIPT):
-                    py_exe = get_console_python_exe()
-                    env_mb = _fa_child_env({"NEXUS_ACCOUNTS_FILE": ACCOUNTS_FILE})
+                    py_exe = resolve_child_python_exe()
+                    env_mb = _fa_child_env(
+                        {**_fa_shared_brave_env(), "NEXUS_ACCOUNTS_FILE": ACCOUNTS_FILE}
+                    )
                     spawn_python_logged(
                         [py_exe, MAILBOX_SCRIPT, "--auto-close"],
                         BASE_DIR,
@@ -1934,33 +2120,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     # Запускаем скрипт авто-логина в mailbox
                     mailbox_login = os.path.join(BASE_DIR, 'mailbox_login.py')
                     if os.path.exists(mailbox_login):
-                        py_lm = get_console_python_exe()
+                        py_lm = resolve_child_python_exe()
                         cmd = [py_lm, mailbox_login,
                                '--email', email_,
                                '--password', password]
                         spawn_python_logged(
                             cmd,
                             BASE_DIR,
-                            _fa_child_env(),
+                            _fa_child_env(_fa_shared_brave_env()),
                             "mail-login",
                         )
                     else:
                         # Fallback — просто открываем браузер
                         brave_exe = find_brave()
+                        _br_kw: dict = {}
+                        if os.name == "nt":
+                            _br_kw["creationflags"] = int(
+                                getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                            )
                         subprocess.Popen(
                             [
                                 brave_exe,
                                 "--window-size=980,640",
                                 "--window-position=100,60",
                                 "https://app.mailbox.org/",
-                            ]
+                            ],
+                            **_br_kw,
                         )
                     ok = True
                 else: error = 'No credentials'
 
             elif action == 'open_cursor':
                 if email_ and password:
-                    py = get_console_python_exe()
+                    py = resolve_child_python_exe()
                     mail_pass = get_mailbox_password_by_email(email_)
                     cmd = [py, CURSOR_SCRIPT,
                            '--action', 'login',
@@ -1970,7 +2162,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     spawn_python_logged(
                         cmd,
                         BASE_DIR,
-                        _fa_child_env(),
+                        _fa_child_env(_fa_shared_brave_env()),
                         "cursor",
                     )
                     mark_cursor_logged_in(email_)
@@ -1979,7 +2171,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             elif action == 'delete_cursor_acc':
                 if email_ and password:
-                    py = get_console_python_exe()
+                    py = resolve_child_python_exe()
                     cmd = [py, CURSOR_SCRIPT,
                            '--action', 'delete',
                            '--email', email_,
@@ -1987,7 +2179,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     spawn_python_logged(
                         cmd,
                         BASE_DIR,
-                        _fa_child_env(),
+                        _fa_child_env(_fa_shared_brave_env()),
                         "cursor",
                     )
                     ok = True
@@ -2056,6 +2248,11 @@ _detach_launcher_console()
 
 brave = find_brave()
 server = http.server.HTTPServer(('localhost', PORT), Handler)
+activity_append(
+    "Интерфейс готов. Ниже — лог: сюда пойдёт вывод почты, Cursor и Full Automation.",
+    "nexus",
+)
+activity_set_progress(0, "Готов к работе")
 
 def open_browser():
     time.sleep(0.8)
