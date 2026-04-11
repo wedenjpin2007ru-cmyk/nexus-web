@@ -1186,17 +1186,6 @@ def main():
                 f"(в среде было: {nog!r})."
             )
     # Раньше здесь было блокирующее «Нажми OK» до любых запросов — убрано для мгновенного старта.
-    if (
-        os.environ.get("NEXUS_QUIET") != "1"
-        and os.environ.get("NEXUS_SHOW_START_MSG") == "1"
-    ):
-        _msg(
-            "NEXUS",
-            f"Клиент {CLIENT_VERSION}\n\n"
-            "Идёт проверка подписки и подготовка файлов.\n\n"
-            f"Лог: {LOG_PATH}",
-            64,
-        )
 
     sess = make_http_session()
     token = load_token()

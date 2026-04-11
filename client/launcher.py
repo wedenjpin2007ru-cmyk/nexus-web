@@ -1227,7 +1227,8 @@ body{
   overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
 }
 .ui-mid .page{display:none !important;flex:1;min-height:0;overflow:hidden;flex-direction:column}
-.ui-mid .page.active{display:flex !important}
+.ui-mid .page.active{display:flex !important;animation:fadeIn .5s ease-out}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 #page-main.page.active{justify-content:center;align-items:stretch}
 .ui-log{
   display:flex;flex-direction:column;gap:5px;
@@ -1297,13 +1298,14 @@ body{
   border-radius:20px;
   padding:24px;
   transform-style:preserve-3d;
-  transition:all .3s;
+  transition:all .6s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow:0 10px 40px rgba(0,0,0,.5);
 }
 .status-card-inner:hover{
   transform:translateY(-5px) rotateX(2deg);
   border-color:#fff;
   box-shadow:0 20px 60px rgba(0,0,0,.7),0 0 40px rgba(255,255,255,.1);
+  transition:all .4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .status-card-glow{
   position:absolute;
@@ -1398,7 +1400,10 @@ body{
 .card{height:120px;border-radius:18px;background:transparent;border:1px solid rgba(255,255,255,0.1);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;
   cursor:none;animation:popIn .5s ease both;transition:all .2s}
-@keyframes popIn{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes popIn{from{transform:scale(0.8);opacity:0}to{transform:scale(1);opacity:1}}
+.card:nth-child(1){animation-delay:.1s}
+.card:nth-child(2){animation-delay:.2s}
+.card:nth-child(3){animation-delay:.3s}
 .card:hover{border-color:#b266ff;box-shadow:0 0 35px #b266ff55;transform:scale(1.04);background:rgba(24,10,40,0.7)}
 .card.clicking{transform:scale(0.97)!important}
 .card.danger:hover{box-shadow:0 0 45px #b266ff99}
@@ -1411,7 +1416,14 @@ body{
 .acc-scroll::-webkit-scrollbar{width:3px}
 .acc-scroll::-webkit-scrollbar-thumb{background:#35204f;border-radius:2px}
 .acc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;padding:2px}
-.acc-card{background:rgba(12,5,20,0.85);border:1px solid #241335;border-radius:10px;padding:12px 14px;transition:all .2s}
+.acc-card{background:rgba(12,5,20,0.85);border:1px solid #241335;border-radius:10px;padding:12px 14px;transition:all .2s;animation:fadeInUp .4s ease-out backwards}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
+.acc-card:nth-child(1){animation-delay:.05s}
+.acc-card:nth-child(2){animation-delay:.1s}
+.acc-card:nth-child(3){animation-delay:.15s}
+.acc-card:nth-child(4){animation-delay:.2s}
+.acc-card:nth-child(5){animation-delay:.25s}
+.acc-card:nth-child(6){animation-delay:.3s}
 .acc-card:hover{border-color:#b266ff33}
 .acc-visit-row{margin-bottom:6px}
 .acc-visit{display:inline-block;font-size:9px;letter-spacing:1px;padding:3px 8px;border-radius:6px;font-family:'Orbitron',monospace}
