@@ -1259,9 +1259,36 @@ body{
 .tab:hover{color:#b266ff}
 .tab.active{color:#b266ff;border-bottom-color:#b266ff}
 /* MAIN */
+#page-main{justify-content:flex-start!important;padding-top:20px}
 .status-card-3d{
   width:100%;max-width:600px;margin:0 auto 30px;
   perspective:1000px;
+}
+.status-card-compact{
+  max-width:500px;
+  margin-top:30px;
+}
+.status-card-compact .status-card-inner{
+  padding:16px;
+}
+.status-card-compact .status-header{
+  margin-bottom:12px;
+}
+.status-card-compact .status-icon{
+  font-size:24px;
+}
+.status-card-compact .status-title{
+  font-size:14px;
+  letter-spacing:3px;
+}
+.status-card-compact .status-body{
+  gap:8px;
+}
+.status-card-compact .progress-bar-3d{
+  height:8px;
+}
+.status-card-compact .status-message{
+  font-size:10px;
 }
 .status-card-inner{
   position:relative;
@@ -1641,6 +1668,7 @@ input:focus,textarea:focus{
   </div>
   <div class="tabs">
     <div class="tab active" onclick="switchTab('main',this)">// ГЛАВНАЯ</div>
+    <div class="tab" onclick="switchTab('mailbox',this)">// MAILBOX</div>
     <div class="tab" onclick="switchTab('cursor',this)">// CURSOR</div>
     <div class="tab" onclick="switchTab('inbox',this);initInbox()">// INBOX</div>
   </div>
@@ -1649,8 +1677,21 @@ input:focus,textarea:focus{
   <div class="ui-mid">
   <!-- MAIN -->
   <div class="page active" id="page-main">
-    <!-- Status Card 3D -->
-    <div class="status-card-3d">
+    <!-- Action Cards -->
+    <div class="cards">
+      <div class="card" onclick="run('mailbox_register',this)">
+        <div class="card-icon">📧</div><div class="card-label">REGISTER<br>MAILBOX</div>
+      </div>
+      <div class="card" onclick="openPS()">
+        <div class="card-icon">⚙️</div><div class="card-label">POWERSHELL<br>ADMIN</div>
+      </div>
+      <div class="card" onclick="openFullAutomationModal(this)">
+        <div class="card-icon">⛓</div><div class="card-label">FULL<br>AUTOMATION</div>
+      </div>
+    </div>
+
+    <!-- Status Card 3D - smaller and below -->
+    <div class="status-card-3d status-card-compact">
       <div class="status-card-inner">
         <div class="status-card-glow"></div>
         <div class="status-header">
@@ -1671,19 +1712,6 @@ input:focus,textarea:focus{
           </div>
           <div class="status-message" id="status-message">Система готова к работе</div>
         </div>
-      </div>
-    </div>
-
-    <!-- Action Cards -->
-    <div class="cards">
-      <div class="card" onclick="run('mailbox_register',this)">
-        <div class="card-icon">📧</div><div class="card-label">REGISTER<br>MAILBOX</div>
-      </div>
-      <div class="card" onclick="openPS()">
-        <div class="card-icon">⚙️</div><div class="card-label">POWERSHELL<br>ADMIN</div>
-      </div>
-      <div class="card" onclick="openFullAutomationModal(this)">
-        <div class="card-icon">⛓</div><div class="card-label">FULL<br>AUTOMATION</div>
       </div>
     </div>
   </div>
