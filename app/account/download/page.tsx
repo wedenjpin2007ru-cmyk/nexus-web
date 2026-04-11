@@ -69,10 +69,10 @@ export default async function DownloadPage() {
           </p>
           <div className="mt-6">
             <a
-              href="/api/download/nexus?v=2026-04-13"
+              href="/api/download/nexus?v=2026-04-11"
               className="ui-transition inline-flex h-11 w-full items-center justify-center rounded-xl bg-[color:var(--accent)] px-5 text-sm font-semibold text-black hover:brightness-110"
             >
-              Скачать Nexus-2026-04-13.exe
+              Скачать Nexus-2026-04-11.exe
             </a>
           </div>
           <ol className="mt-8 list-decimal space-y-3 pl-5 text-sm text-white/65">

@@ -63,9 +63,11 @@ $projectRoot = (Resolve-Path "..\\..").Path
 $outDir = Join-Path $webRoot "downloads"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
+# Иконка по желанию — без неё сборка всё равно валидна (PyInstaller падает, если путь к .ico битый).
 $icon = "C:\\Users\\developer\\Downloads\\file_type_script_icon_130178.ico"
-if (-not (Test-Path $icon)) {
-  throw "Icon not found: $icon"
+$useIcon = Test-Path $icon
+if (-not $useIcon) {
+  Write-Warning "Icon not found, building without --icon: $icon"
 }
 
 $bundleFiles = @(
@@ -90,9 +92,12 @@ $pyiArgs = @(
   "-m", "PyInstaller",
   "--noconsole",
   "--onefile",
-  "--name", "Nexus",
-  "--icon", $icon
+  "--name", "Nexus"
 )
+if ($useIcon) {
+  $pyiArgs += "--icon"
+  $pyiArgs += $icon
+}
 
 foreach ($f in $bundleFiles) {
   $pyiArgs += "--add-data"
