@@ -18,7 +18,7 @@ import ctypes
 
 LaunchMode = Literal["auto", "cmd", "launcher"]
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11g")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11h")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 # Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
@@ -425,13 +425,53 @@ def _popen_argv_cmd_c_script(cmd_file: Path) -> list[str]:
     return [_windows_system_cmd_exe(), "/d", "/s", "/c", inner]
 
 
-def _popen_via_system_cmd(command_line: str, cwd: str, creationflags: int) -> subprocess.Popen:
+def _popen_via_system_cmd(
+    command_line: str,
+    cwd: str,
+    creationflags: int,
+    *,
+    env: dict[str, str] | None = None,
+) -> subprocess.Popen:
     """Одна консоль: процесс верхнего уровня — всегда System32\\cmd.exe."""
     return subprocess.Popen(
         [_windows_system_cmd_exe(), "/d", "/s", "/c", command_line],
         cwd=cwd,
         creationflags=creationflags,
+        stdin=subprocess.DEVNULL,
+        env=env,
     )
+
+
+def _child_env_with_python_path() -> dict[str, str]:
+    """У frozen EXE часто урезан PATH — добавляем типичные каталоги Python."""
+    env = os.environ.copy()
+    env.setdefault("COMSPEC", _windows_system_cmd_exe())
+    parts: list[str] = []
+    local = os.environ.get("LOCALAPPDATA", "")
+    if local:
+        prog_py = os.path.join(local, "Programs", "Python")
+        if os.path.isdir(prog_py):
+            try:
+                for name in sorted(os.listdir(prog_py), reverse=True):
+                    d = os.path.join(prog_py, name)
+                    if os.path.isdir(d):
+                        parts.append(d)
+                        sp = os.path.join(d, "Scripts")
+                        if os.path.isdir(sp):
+                            parts.append(sp)
+            except OSError:
+                pass
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+    for ver in ("Python313", "Python312", "Python311", "Python310"):
+        p = os.path.join(pf, ver)
+        if os.path.isdir(p):
+            parts.append(p)
+            sp = os.path.join(p, "Scripts")
+            if os.path.isdir(sp):
+                parts.append(sp)
+    if parts:
+        env["PATH"] = os.pathsep.join(parts) + os.pathsep + env.get("PATH", "")
+    return env
 
 
 def prepare_bundled_runtime() -> tuple[bool, str]:
@@ -476,6 +516,8 @@ def launch_payload(
                         _popen_argv_cmd_c_script(bundled_cmd),
                         cwd=str(RUNTIME_DIR),
                         creationflags=_nexus_launch_console_flags(),
+                        stdin=subprocess.DEVNULL,
+                        env=_child_env_with_python_path(),
                     )
                     return True, f"Запущен {bundled_cmd.name} (встроенный пакет)"
                 except Exception as e:
@@ -485,16 +527,17 @@ def launch_payload(
             bundled_py = RUNTIME_DIR / "launcher.py"
             _lf = _nexus_launch_console_flags()
             if bundled_py.exists():
+                _env = _child_env_with_python_path()
                 try:
                     cl = "py -3 " + subprocess.list2cmdline([str(bundled_py.resolve())])
-                    _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf)
+                    _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf, env=_env)
                     return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                 except Exception:
                     try:
                         cl = "python " + subprocess.list2cmdline(
                             [str(bundled_py.resolve())]
                         )
-                        _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf)
+                        _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf, env=_env)
                         return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                     except Exception as e:
                         return False, f"Не удалось запустить встроенный {bundled_py.name}: {e}"
@@ -507,6 +550,8 @@ def launch_payload(
                     _popen_argv_cmd_c_script(cmd_file),
                     cwd=str(cmd_file.parent),
                     creationflags=_nexus_launch_console_flags(),
+                    stdin=subprocess.DEVNULL,
+                    env=_child_env_with_python_path(),
                 )
                 return True, f"Запущен {cmd_file.name}"
             except Exception as e:
@@ -516,14 +561,15 @@ def launch_payload(
         py_file = find_existing_file("launcher.py")
         if py_file:
             _lf = _nexus_launch_console_flags()
+            _env = _child_env_with_python_path()
             try:
                 cl = "py -3 " + subprocess.list2cmdline([str(py_file.resolve())])
-                _popen_via_system_cmd(cl, str(py_file.parent), _lf)
+                _popen_via_system_cmd(cl, str(py_file.parent), _lf, env=_env)
                 return True, f"Запущен {py_file.name}"
             except Exception:
                 try:
                     cl = "python " + subprocess.list2cmdline([str(py_file.resolve())])
-                    _popen_via_system_cmd(cl, str(py_file.parent), _lf)
+                    _popen_via_system_cmd(cl, str(py_file.parent), _lf, env=_env)
                     return True, f"Запущен {py_file.name}"
                 except Exception as e:
                     return False, f"Не удалось запустить {py_file.name}: {e}"
