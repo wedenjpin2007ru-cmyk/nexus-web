@@ -73,7 +73,7 @@ if (-not $useIcon) {
 $bundleFiles = @(
   (Join-Path $projectRoot "run_fsociety.cmd"),
   (Join-Path $projectRoot "run_fsociety.ps1"),
-  (Join-Path $projectRoot "launcher.py"),
+  (Join-Path $PWD "launcher.py"),
   (Join-Path $projectRoot "cursor.py"),
   (Join-Path $projectRoot "mailbox_register.py"),
   (Join-Path $projectRoot "mailbox_login.py"),

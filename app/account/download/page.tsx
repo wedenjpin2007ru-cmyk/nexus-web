@@ -64,18 +64,17 @@ export default async function DownloadPage() {
             Скачать клиент
           </h1>
           <p className="mt-3 text-sm text-white/70">
-            Один файл — всё внутри. После установки подписки на сайте скачай EXE и
-            следуй шагам ниже.             Запуск сценария открывает одно окно{" "}
-            <span className="text-white/85">cmd.exe</span> (через System32): весь
-            прогресс Full Automation (0–100%) и лог — только там, без PowerShell в
-            цепочке по умолчанию.
+            Один файл — всё внутри. После подписки скачай EXE и следуй шагам ниже.
+            Прогресс регистрации почты, Cursor и Full Automation (0–100%) смотри в
+            самой панели лаунчера: блок «ЛОГ ЗАПУСКОВ» внизу окна — отдельные окна{" "}
+            <span className="text-white/85">cmd</span> для этого не открываются.
           </p>
           <div className="mt-6">
             <a
-              href="/api/download/nexus?v=2026-04-11"
+              href="/api/download/nexus?v=2026-04-11i"
               className="ui-transition inline-flex h-11 w-full items-center justify-center rounded-xl bg-[color:var(--accent)] px-5 text-sm font-semibold text-black hover:brightness-110"
             >
-              Скачать Nexus-2026-04-11.exe
+              Скачать Nexus-2026-04-11i.exe
             </a>
           </div>
           <ol className="mt-8 list-decimal space-y-3 pl-5 text-sm text-white/65">

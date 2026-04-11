@@ -8,7 +8,7 @@ const DOWNLOAD_EXE_PATH = path.join(
   "downloads",
   "Nexus.exe",
 );
-const DOWNLOAD_VERSION = "2026-04-11";
+const DOWNLOAD_VERSION = "2026-04-11i";
 
 export async function GET() {
   const user = await getUserFromRequest();

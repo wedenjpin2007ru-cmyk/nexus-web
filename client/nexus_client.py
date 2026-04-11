@@ -18,7 +18,7 @@ import ctypes
 
 LaunchMode = Literal["auto", "cmd", "launcher"]
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11h")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11i")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 # Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
@@ -442,6 +442,31 @@ def _popen_via_system_cmd(
     )
 
 
+def _popen_launcher_python(py_script: Path, cwd: Path, env: dict[str, str]) -> bool:
+    """
+    Запуск launcher.py без лишнего окна cmd.exe: напрямую py/python.
+    Логи и прогресс — в веб-панели лаунчера (localhost), а не в чёрной консоли.
+    """
+    flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0
+    script = str(py_script.resolve())
+    work = str(cwd.resolve())
+    for argv in (["py", "-3", script], ["python", script]):
+        try:
+            subprocess.Popen(
+                argv,
+                cwd=work,
+                creationflags=flags,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+            )
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def _child_env_with_python_path() -> dict[str, str]:
     """У frozen EXE часто урезан PATH — добавляем типичные каталоги Python."""
     env = os.environ.copy()
@@ -525,22 +550,11 @@ def launch_payload(
 
         if allow_launcher:
             bundled_py = RUNTIME_DIR / "launcher.py"
-            _lf = _nexus_launch_console_flags()
             if bundled_py.exists():
                 _env = _child_env_with_python_path()
-                try:
-                    cl = "py -3 " + subprocess.list2cmdline([str(bundled_py.resolve())])
-                    _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf, env=_env)
+                if _popen_launcher_python(bundled_py, RUNTIME_DIR, _env):
                     return True, f"Запущен {bundled_py.name} (встроенный пакет)"
-                except Exception:
-                    try:
-                        cl = "python " + subprocess.list2cmdline(
-                            [str(bundled_py.resolve())]
-                        )
-                        _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf, env=_env)
-                        return True, f"Запущен {bundled_py.name} (встроенный пакет)"
-                    except Exception as e:
-                        return False, f"Не удалось запустить встроенный {bundled_py.name}: {e}"
+                return False, f"Не удалось запустить встроенный {bundled_py.name} (нет py/python в PATH)."
 
     if allow_cmd:
         cmd_file = find_existing_file("run_fsociety.cmd")
@@ -560,19 +574,10 @@ def launch_payload(
     if allow_launcher:
         py_file = find_existing_file("launcher.py")
         if py_file:
-            _lf = _nexus_launch_console_flags()
             _env = _child_env_with_python_path()
-            try:
-                cl = "py -3 " + subprocess.list2cmdline([str(py_file.resolve())])
-                _popen_via_system_cmd(cl, str(py_file.parent), _lf, env=_env)
+            if _popen_launcher_python(py_file, py_file.parent, _env):
                 return True, f"Запущен {py_file.name}"
-            except Exception:
-                try:
-                    cl = "python " + subprocess.list2cmdline([str(py_file.resolve())])
-                    _popen_via_system_cmd(cl, str(py_file.parent), _lf, env=_env)
-                    return True, f"Запущен {py_file.name}"
-                except Exception as e:
-                    return False, f"Не удалось запустить {py_file.name}: {e}"
+            return False, f"Не удалось запустить {py_file.name} (нет py/python в PATH)."
 
     if mode == "cmd":
         return False, "run_fsociety.cmd не найден (ни во встроенном пакете, ни рядом с EXE)."
