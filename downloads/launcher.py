@@ -32,12 +32,14 @@ NEXUS_UI_HEIGHT = 580
 # Full automation: одно консольное окно, прогресс 0–100, без отдельных CMD/PowerShell.
 _fa_console_lock = threading.Lock()
 _fa_console_allocated = False
+# True только если консоль создана через AllocConsole (Nexus.exe). Нельзя FreeConsole у терминала пользователя (WT).
+_fa_console_from_alloc = False
 _fa_automation_lock = threading.Lock()
 
 
 def _fa_attach_console():
-    """Выделить одно консольное окно процесса (после FreeConsole у лаунчера)."""
-    global _fa_console_allocated
+    """Подключить консоль: существующий терминал или новое окно (после отвязки лаунчера)."""
+    global _fa_console_allocated, _fa_console_from_alloc
     if os.name != "nt":
         return False
     with _fa_console_lock:
@@ -49,6 +51,7 @@ def _fa_attach_console():
             k32 = ctypes.windll.kernel32
             if k32.GetConsoleWindow():
                 _fa_console_allocated = True
+                _fa_console_from_alloc = False
                 return True
             if not k32.AllocConsole():
                 return False
@@ -62,14 +65,15 @@ def _fa_attach_console():
             sys.stdout = conout
             sys.stderr = conout
             _fa_console_allocated = True
+            _fa_console_from_alloc = True
             return True
         except Exception:
             return False
 
 
 def _fa_release_console():
-    """Закрыть консоль автоматизации, вернуть тихий режим как после старта лаунчера."""
-    global _fa_console_allocated
+    """Убрать только консоль, созданную AllocConsole; вкладку Windows Terminal не трогаем."""
+    global _fa_console_allocated, _fa_console_from_alloc
     if os.name != "nt":
         return
     with _fa_console_lock:
@@ -80,19 +84,21 @@ def _fa_release_console():
             sys.stderr.flush()
         except Exception:
             pass
-        try:
-            import ctypes
-
-            ctypes.windll.kernel32.FreeConsole()
-        except Exception:
-            pass
         _fa_console_allocated = False
-        try:
-            dn = open(os.devnull, "w", encoding="utf-8")
-            sys.stdout = dn
-            sys.stderr = dn
-        except Exception:
-            pass
+        if _fa_console_from_alloc:
+            try:
+                import ctypes
+
+                ctypes.windll.kernel32.FreeConsole()
+            except Exception:
+                pass
+            _fa_console_from_alloc = False
+            try:
+                dn = open(os.devnull, "w", encoding="utf-8")
+                sys.stdout = dn
+                sys.stderr = dn
+            except Exception:
+                pass
 
 
 def _fa_progress(pct: int, message: str) -> None:
@@ -157,12 +163,35 @@ def run_powershell_in_automation_console(script_text: str) -> int:
     return int(r.returncode or 0)
 
 
+def _win_has_console_hwnd():
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.kernel32.GetConsoleWindow())
+    except Exception:
+        return False
+
+
+def _popen_console_flags():
+    """Дочерние Python-скрипты пишут в тот же терминал, если лаунчер запущен из WT/CMD."""
+    if os.name != "nt":
+        return {}
+    if _win_has_console_hwnd():
+        return {"creationflags": 0}
+    return {"creationflags": subprocess.CREATE_NEW_CONSOLE}
+
+
 def _detach_launcher_console():
     """
-    Без чёрного окна CMD с localhost: перенаправляем stdout/stderr и отцепляем консоль (Windows).
+    Без лишнего чёрного окна при двойном клике: глушим вывод и FreeConsole.
+    Если лаунчер уже в терминале пользователя — не отцепляемся: full automation и mailbox/cursor в одной вкладке.
     Отладка: NEXUS_KEEP_CONSOLE=1
     """
     if os.getenv("NEXUS_KEEP_CONSOLE", "").strip().lower() in ("1", "true", "yes", "on"):
+        return
+    if _win_has_console_hwnd():
         return
     try:
         sys.stdout.flush()
@@ -241,7 +270,7 @@ def save_automation_state(email_addr, password):
 
 def launch_cursor_app():
     if os.path.exists(CURSOR_EXE_PATH):
-        subprocess.Popen([CURSOR_EXE_PATH], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        subprocess.Popen([CURSOR_EXE_PATH], **_popen_console_flags())
         return True
     return False
 
@@ -254,11 +283,12 @@ def get_console_python_exe():
       3) текущий sys.executable.
     """
     try:
+        _py_kw = dict(stderr=subprocess.STDOUT, text=True, timeout=5)
+        if os.name == "nt":
+            _py_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
         out = subprocess.check_output(
             ["py", "-c", "import sys;print(sys.executable)"],
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=5,
+            **_py_kw,
         ).strip()
         if out and os.path.exists(out):
             return out
@@ -360,11 +390,16 @@ def run_full_automation(skip_powershell=False, ps_script='', hot_words=''):
 
 def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words=''):
     use_console = os.name == "nt" and _fa_attach_console()
+    fa_used_alloc = _fa_console_from_alloc
     err_note = ""
 
     def _finish_ok():
-        _fa_progress_ln(100, "Готово. Окно закроется через пару секунд…")
-        time.sleep(2.2)
+        if fa_used_alloc:
+            _fa_progress_ln(100, "Готово. Окно закроется через пару секунд…")
+            time.sleep(2.2)
+        else:
+            _fa_progress_ln(100, "Готово.")
+            time.sleep(0.4)
         if use_console:
             _fa_release_console()
 
@@ -404,14 +439,11 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         env_mb = os.environ.copy()
         env_mb["NEXUS_ACCOUNTS_FILE"] = ACCOUNTS_FILE
         _fa_progress(28, "Регистрация почты — следуйте подсказкам ниже…")
-        mailbox_kw: dict = {"cwd": BASE_DIR, "env": env_mb}
-        if os.name == "nt":
-            mailbox_kw["creationflags"] = (
-                0 if use_console else subprocess.CREATE_NEW_CONSOLE
-            )
         mailbox_proc = subprocess.Popen(
             [py_exe, MAILBOX_SCRIPT, "--auto-close"],
-            **mailbox_kw,
+            cwd=BASE_DIR,
+            env=env_mb,
+            **_popen_console_flags(),
         )
         add_log("Mailbox registration launched", "OK")
         n_acc_before = len(load_accounts(ACCOUNTS_FILE))
@@ -478,12 +510,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             DEFAULT_ACCOUNT_PASSWORD,
         ]
         _fa_progress(78, f"Запуск Cursor-регистрации для {latest_email}…")
-        cursor_kw: dict = {"cwd": BASE_DIR}
-        if os.name == "nt":
-            cursor_kw["creationflags"] = (
-                0 if use_console else subprocess.CREATE_NEW_CONSOLE
-            )
-        subprocess.Popen(cursor_cmd, **cursor_kw)
+        subprocess.Popen(cursor_cmd, cwd=BASE_DIR, **_popen_console_flags())
         add_log(f"Cursor registration launched for {latest_email}", "OK")
         _fa_progress(92, "Cursor-скрипт запущен в этом же окне")
 
@@ -1407,7 +1434,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                '--mail-pass', mail_pass]
                     else:
                         cmd = [py, CURSOR_SCRIPT, '--action', 'delete']
-                    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    subprocess.Popen(cmd, cwd=BASE_DIR, **_popen_console_flags())
                     ok = True
                 else: error = 'cursor.py not found!'
 
@@ -1420,7 +1447,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         [py_exe, MAILBOX_SCRIPT, "--auto-close"],
                         cwd=BASE_DIR,
                         env=env_mb,
-                        creationflags=subprocess.CREATE_NEW_CONSOLE,
+                        **_popen_console_flags(),
                     )
                     ok = True
                 else:
@@ -1494,7 +1521,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if os.path.exists(filepath):
                     cmd = ['powershell', '-Command',
                            f'Start-Process powershell -ArgumentList "-NoExit -ExecutionPolicy Bypass -File \"{filepath}\"" -Verb RunAs']
-                    subprocess.Popen(cmd)
+                    _wrap = {}
+                    if os.name == "nt":
+                        _wrap["creationflags"] = subprocess.CREATE_NO_WINDOW
+                    subprocess.Popen(cmd, **_wrap)
                     ok = True
                 else:
                     error = 'Script not found'
@@ -1509,10 +1539,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     with open(tmp, 'w', encoding='utf-8') as f:
                         f.write(script)
                     # Запускаем PowerShell от имени администратора
+                    _wrap = dict(shell=True)
+                    if os.name == "nt":
+                        _wrap["creationflags"] = subprocess.CREATE_NO_WINDOW
                     subprocess.Popen([
                         'powershell', '-Command',
                         f'Start-Process powershell -ArgumentList "-NoExit -ExecutionPolicy Bypass -File \"{tmp}\"" -Verb RunAs'
-                    ], shell=True)
+                    ], **_wrap)
                     ok = True
                     add_log('PowerShell script launched as Admin', 'OK')
                 else:
@@ -1526,7 +1559,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         cmd = [sys.executable, mailbox_login,
                                '--email', email_,
                                '--password', password]
-                        subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                        subprocess.Popen(cmd, **_popen_console_flags())
                     else:
                         # Fallback — просто открываем браузер
                         brave_exe = find_brave()
@@ -1550,7 +1583,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                            '--email', email_,
                            '--cursor-pass', password,
                            '--mail-pass', mail_pass]
-                    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    subprocess.Popen(cmd, cwd=BASE_DIR, **_popen_console_flags())
                     mark_cursor_logged_in(email_)
                     ok = True
                 else: error = 'No credentials'
@@ -1562,7 +1595,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                            '--action', 'delete',
                            '--email', email_,
                            '--cursor-pass', password]
-                    subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    subprocess.Popen(cmd, cwd=BASE_DIR, **_popen_console_flags())
                     ok = True
                 else: error = 'No credentials'
 
@@ -1666,9 +1699,12 @@ def close_kiosk_browser():
             "*' }; "
             "foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }"
         )
+        _ps_kw = dict(capture_output=True, timeout=6)
+        if os.name == "nt":
+            _ps_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
         subprocess.run(
             ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps_cmd],
-            capture_output=True, timeout=6
+            **_ps_kw,
         )
     except Exception:
         pass

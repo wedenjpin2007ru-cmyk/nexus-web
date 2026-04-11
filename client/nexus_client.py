@@ -18,7 +18,7 @@ import ctypes
 
 LaunchMode = Literal["auto", "cmd", "launcher"]
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11b")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11c")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 # Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
@@ -401,6 +401,18 @@ def find_existing_file(name: str) -> Path | None:
     return None
 
 
+def _launcher_subprocess_creationflags() -> int:
+    """Из терминала (WT/CMD) — лаунчер в той же сессии; из GUI exe — без лишнего чёрного окна."""
+    if os.name != "nt":
+        return 0
+    try:
+        if ctypes.windll.kernel32.GetConsoleWindow():
+            return 0
+    except Exception:
+        pass
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def prepare_bundled_runtime() -> tuple[bool, str]:
     """Копирует встроенные файлы в RUNTIME_DIR. Можно гонять параллельно с check_access."""
     meipass = getattr(sys, "_MEIPASS", None)
@@ -450,13 +462,13 @@ def launch_payload(
 
         if allow_launcher:
             bundled_py = RUNTIME_DIR / "launcher.py"
-            _no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            _lf = _launcher_subprocess_creationflags()
             if bundled_py.exists():
                 try:
                     subprocess.Popen(
                         ["py", str(bundled_py)],
                         cwd=str(RUNTIME_DIR),
-                        creationflags=_no_win,
+                        creationflags=_lf,
                     )
                     return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                 except Exception:
@@ -464,7 +476,7 @@ def launch_payload(
                         subprocess.Popen(
                             ["python", str(bundled_py)],
                             cwd=str(RUNTIME_DIR),
-                            creationflags=_no_win,
+                            creationflags=_lf,
                         )
                         return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                     except Exception as e:
@@ -486,13 +498,13 @@ def launch_payload(
     if allow_launcher:
         py_file = find_existing_file("launcher.py")
         if py_file:
-            _no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            _lf = _launcher_subprocess_creationflags()
             py_cmd = ["py", str(py_file)]
             try:
                 subprocess.Popen(
                     py_cmd,
                     cwd=str(py_file.parent),
-                    creationflags=_no_win,
+                    creationflags=_lf,
                 )
                 return True, f"Запущен {py_file.name}"
             except Exception:
@@ -500,7 +512,7 @@ def launch_payload(
                     subprocess.Popen(
                         ["python", str(py_file)],
                         cwd=str(py_file.parent),
-                        creationflags=_no_win,
+                        creationflags=_lf,
                     )
                     return True, f"Запущен {py_file.name}"
                 except Exception as e:
