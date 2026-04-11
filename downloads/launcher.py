@@ -30,6 +30,33 @@ NEXUS_UI_WIDTH = 920
 NEXUS_UI_HEIGHT = 580
 
 
+def _detach_launcher_console():
+    """
+    Без чёрного окна CMD с localhost: перенаправляем stdout/stderr и отцепляем консоль (Windows).
+    Отладка: NEXUS_KEEP_CONSOLE=1
+    """
+    if os.getenv("NEXUS_KEEP_CONSOLE", "").strip().lower() in ("1", "true", "yes", "on"):
+        return
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    try:
+        dn = open(os.devnull, "w", encoding="utf-8")
+        sys.stdout = dn
+        sys.stderr = dn
+    except Exception:
+        pass
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            ctypes.windll.kernel32.FreeConsole()
+        except Exception:
+            pass
+
+
 def centered_window_geometry(width: int, height: int) -> tuple[int, int, int, int]:
     """(width, height, x, y) для --window-size / --window-position (центр монитора)."""
     import ctypes as _ctypes
@@ -1409,9 +1436,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps({'ok': ok, 'error': error}).encode())
 
+_detach_launcher_console()
+
 brave = find_brave()
 server = http.server.HTTPServer(('localhost', PORT), Handler)
-print(f"NEXUS -> http://localhost:{PORT}")
 
 def open_browser():
     time.sleep(0.8)

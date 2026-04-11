@@ -447,12 +447,13 @@ def launch_payload(
 
         if allow_launcher:
             bundled_py = RUNTIME_DIR / "launcher.py"
+            _no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             if bundled_py.exists():
                 try:
                     subprocess.Popen(
                         ["py", str(bundled_py)],
                         cwd=str(RUNTIME_DIR),
-                        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                        creationflags=_no_win,
                     )
                     return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                 except Exception:
@@ -460,7 +461,7 @@ def launch_payload(
                         subprocess.Popen(
                             ["python", str(bundled_py)],
                             cwd=str(RUNTIME_DIR),
-                            creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                            creationflags=_no_win,
                         )
                         return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                     except Exception as e:
@@ -482,12 +483,13 @@ def launch_payload(
     if allow_launcher:
         py_file = find_existing_file("launcher.py")
         if py_file:
+            _no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             py_cmd = ["py", str(py_file)]
             try:
                 subprocess.Popen(
                     py_cmd,
                     cwd=str(py_file.parent),
-                    creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                    creationflags=_no_win,
                 )
                 return True, f"Запущен {py_file.name}"
             except Exception:
@@ -495,7 +497,7 @@ def launch_payload(
                     subprocess.Popen(
                         ["python", str(py_file)],
                         cwd=str(py_file.parent),
-                        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                        creationflags=_no_win,
                     )
                     return True, f"Запущен {py_file.name}"
                 except Exception as e:
@@ -605,6 +607,35 @@ def open_client_panel_app_window(url: str) -> bool:
             return True
         except Exception:
             return False
+
+
+def close_panel_chromium_profile() -> None:
+    """Закрыть окно панели подписки (--app с PANEL_APP_PROFILE_DIR) после перехода в лаунчер."""
+    if os.name != "nt":
+        return
+    try:
+        marker = str(PANEL_APP_PROFILE_DIR.resolve()).replace("\\", "\\\\")
+        ps_cmd = (
+            "$procs = Get-CimInstance Win32_Process | Where-Object { "
+            "$_.CommandLine -and ($_.Name -match '^(brave|chrome|msedge)\\.exe$') "
+            f"-and $_.CommandLine -like '*{marker}*' }}; "
+            "foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }"
+        )
+        subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                ps_cmd,
+            ],
+            capture_output=True,
+            timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception as e:
+        log(f"close_panel_chromium_profile: {e!r}")
 
 
 def _env_no_gui() -> bool:
@@ -970,6 +1001,7 @@ def show_nexus_bw_panel(
     except Exception:
         pass
     th.join(timeout=3.0)
+    close_panel_chromium_profile()
     return result[0]
 
 
