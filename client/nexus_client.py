@@ -18,7 +18,7 @@ import ctypes
 
 LaunchMode = Literal["auto", "cmd", "launcher"]
 
-CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11f")
+CLIENT_VERSION = os.environ.get("NEXUS_CLIENT_VERSION", "2026-04-11g")
 LOG_PATH = Path(os.environ.get("APPDATA", ".")) / "Nexus" / "nexus_client.log"
 
 # Старый дефолт часто «умирает» на Railway (другой домен / сервис). URL задаётся при сборке (app_url.txt),
@@ -413,6 +413,27 @@ def _nexus_launch_console_flags() -> int:
     return int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
 
 
+def _windows_system_cmd_exe() -> str:
+    """Явный %SystemRoot%\\System32\\cmd.exe — не «через PATH», чтобы хост консоли был классический CMD."""
+    return os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe")
+
+
+def _popen_argv_cmd_c_script(cmd_file: Path) -> list[str]:
+    """cmd.exe /d /s /c с корректными кавычками, если в пути есть пробелы."""
+    p = str(cmd_file.resolve())
+    inner = '""' + p + '""' if " " in p else p
+    return [_windows_system_cmd_exe(), "/d", "/s", "/c", inner]
+
+
+def _popen_via_system_cmd(command_line: str, cwd: str, creationflags: int) -> subprocess.Popen:
+    """Одна консоль: процесс верхнего уровня — всегда System32\\cmd.exe."""
+    return subprocess.Popen(
+        [_windows_system_cmd_exe(), "/d", "/s", "/c", command_line],
+        cwd=cwd,
+        creationflags=creationflags,
+    )
+
+
 def prepare_bundled_runtime() -> tuple[bool, str]:
     """Копирует встроенные файлы в RUNTIME_DIR. Можно гонять параллельно с check_access."""
     meipass = getattr(sys, "_MEIPASS", None)
@@ -452,7 +473,7 @@ def launch_payload(
             if bundled_cmd.exists():
                 try:
                     subprocess.Popen(
-                        ["cmd", "/c", str(bundled_cmd)],
+                        _popen_argv_cmd_c_script(bundled_cmd),
                         cwd=str(RUNTIME_DIR),
                         creationflags=_nexus_launch_console_flags(),
                     )
@@ -465,19 +486,15 @@ def launch_payload(
             _lf = _nexus_launch_console_flags()
             if bundled_py.exists():
                 try:
-                    subprocess.Popen(
-                        ["py", str(bundled_py)],
-                        cwd=str(RUNTIME_DIR),
-                        creationflags=_lf,
-                    )
+                    cl = "py -3 " + subprocess.list2cmdline([str(bundled_py.resolve())])
+                    _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf)
                     return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                 except Exception:
                     try:
-                        subprocess.Popen(
-                            ["python", str(bundled_py)],
-                            cwd=str(RUNTIME_DIR),
-                            creationflags=_lf,
+                        cl = "python " + subprocess.list2cmdline(
+                            [str(bundled_py.resolve())]
                         )
+                        _popen_via_system_cmd(cl, str(RUNTIME_DIR), _lf)
                         return True, f"Запущен {bundled_py.name} (встроенный пакет)"
                     except Exception as e:
                         return False, f"Не удалось запустить встроенный {bundled_py.name}: {e}"
@@ -487,7 +504,7 @@ def launch_payload(
         if cmd_file:
             try:
                 subprocess.Popen(
-                    ["cmd", "/c", str(cmd_file)],
+                    _popen_argv_cmd_c_script(cmd_file),
                     cwd=str(cmd_file.parent),
                     creationflags=_nexus_launch_console_flags(),
                 )
@@ -499,21 +516,14 @@ def launch_payload(
         py_file = find_existing_file("launcher.py")
         if py_file:
             _lf = _nexus_launch_console_flags()
-            py_cmd = ["py", str(py_file)]
             try:
-                subprocess.Popen(
-                    py_cmd,
-                    cwd=str(py_file.parent),
-                    creationflags=_lf,
-                )
+                cl = "py -3 " + subprocess.list2cmdline([str(py_file.resolve())])
+                _popen_via_system_cmd(cl, str(py_file.parent), _lf)
                 return True, f"Запущен {py_file.name}"
             except Exception:
                 try:
-                    subprocess.Popen(
-                        ["python", str(py_file)],
-                        cwd=str(py_file.parent),
-                        creationflags=_lf,
-                    )
+                    cl = "python " + subprocess.list2cmdline([str(py_file.resolve())])
+                    _popen_via_system_cmd(cl, str(py_file.parent), _lf)
                     return True, f"Запущен {py_file.name}"
                 except Exception as e:
                     return False, f"Не удалось запустить {py_file.name}: {e}"

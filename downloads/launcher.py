@@ -421,6 +421,24 @@ def get_console_python_exe():
             return candidate
     return exe
 
+
+def _fa_resolve_python_exe():
+    """
+    Для Full Automation — тот же python.exe, что и лаунчер, без цепочки через py.exe
+    (иначе на части систем дочерний процесс получает отдельную консоль).
+    """
+    ex = (sys.executable or "").strip()
+    if ex and os.path.isfile(ex):
+        base = os.path.basename(ex).lower()
+        if base == "python.exe":
+            return ex
+        if base == "pythonw.exe":
+            cand = os.path.join(os.path.dirname(ex), "python.exe")
+            if os.path.isfile(cand):
+                return cand
+    return get_console_python_exe()
+
+
 def launch_admin_powershell_detached():
     """Отдельный процесс от лаунчера — при закрытии NEXUS окно PowerShell не гаснет."""
     import ctypes
@@ -551,7 +569,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         add_log("Automation started", "INFO")
         _fa_report_banner()
         _fa_progress(0, "Старт full automation")
-        py_exe = get_console_python_exe()
+        py_exe = _fa_resolve_python_exe()
 
         # 1) PowerShell в этой же консоли (без второго окна), если не пропущен и есть текст скрипта.
         if not skip_powershell:
@@ -1072,7 +1090,7 @@ input,textarea,button{
       <button onclick="openFullAutomationModal(this)" style="align-self:flex-start;padding:10px 18px;background:transparent;border:1px solid #b266ff55;border-radius:8px;color:#b266ff;font-family:Orbitron,monospace;font-size:8px;letter-spacing:2px;cursor:none;transition:all .2s" onmouseenter="this.style.background='#1f1230';this.style.borderColor='#b266ff';this.style.boxShadow='0 0 20px #b266ff33'" onmouseleave="this.style.background='transparent';this.style.borderColor='#b266ff55';this.style.boxShadow='none'">⚡ START AUTOMATION</button>
       <div style="font-size:9px;color:#2a2a2a;line-height:1.7">
         Текст для вставки: <span style="color:#b266ff66;font-family:Courier New,monospace">FULL_AUTOMATION_POWERSHELL.txt</span> — можно <a href="/download/FULL_AUTOMATION_POWERSHELL.txt" download style="color:#b266ff">скачать с сайта</a>.<br>
-        Запуск с ПК (одно окно CMD → PowerShell → NEXUS): <a href="/download/run_fsociety.cmd" download style="color:#b266ff">run_fsociety.cmd</a> · <a href="/download/run_fsociety.ps1" download style="color:#b266ff">run_fsociety.ps1</a><br>
+        Запуск с ПК (одно окно CMD → Python → NEXUS; анимация fsociety — <a href="/download/run_fsociety.ps1" download style="color:#b266ff">run_fsociety.ps1</a>): <a href="/download/run_fsociety.cmd" download style="color:#b266ff">run_fsociety.cmd</a><br>
         Кнопка «REGISTER MAILBOX» с сайта: если лаунчер без консоли, откроется одно окно терминала на все задачи — лог mailbox и cursor идёт туда же (не отдельные CMD на каждый запуск).
       </div>
     </div>
