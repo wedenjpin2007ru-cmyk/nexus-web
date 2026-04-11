@@ -163,7 +163,7 @@ def _fa_report_banner():
             "  Отдельные CMD для почты/Cursor не открываются — всё здесь.\n\n"
             "  Карта прогресса:\n"
             "    0–22%   PowerShell (если есть сценарий)\n"
-            "   22–58%   Регистрация Mailbox.org (Brave отдельно — это браузер)\n"
+            "   22–58%   Регистрация Mailbox.org (один Brave на всю цепочку до Cursor)\n"
             "   58–74%   Пауза IMAP + сохранение состояния\n"
             "   74–99%   Регистрация Cursor — ждём ПОЛНОГО завершения скрипта\n"
             "      100%   Итог; при отдельном чёрном окне оно закроется само\n"
@@ -185,6 +185,26 @@ def _fa_child_env(extra=None):
     if extra:
         env.update(extra)
     return env
+
+
+def _fa_shared_brave_env():
+    """
+    Один Brave на всю цепочку FA: тот же user-data-dir и CDP-порт для mailbox и Cursor.
+    (Иначе почта и Cursor поднимают разные окна Brave.)
+    """
+    local = os.environ.get("LOCALAPPDATA") or os.path.join(
+        os.path.expanduser("~"), "AppData", "Local"
+    )
+    profile = os.path.join(local, "NexusFA", "BraveShared")
+    try:
+        os.makedirs(profile, exist_ok=True)
+    except OSError:
+        pass
+    return {
+        "NEXUS_SHARED_BRAVE": "1",
+        "NEXUS_BRAVE_CDP_PORT": "9228",
+        "NEXUS_BRAVE_USER_DATA_DIR": profile,
+    }
 
 
 def run_powershell_in_automation_console(script_text: str) -> int:
@@ -593,10 +613,12 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
             err_note = "Нет mailbox_register.py"
             _finish_err(err_note)
             return
-        env_mb = _fa_child_env({"NEXUS_ACCOUNTS_FILE": ACCOUNTS_FILE})
         _fa_progress(
             28,
             "Этап 2/4: Mailbox.org — ниже лог скрипта (Brave + капча вручную при запросе)",
+        )
+        env_mb = _fa_child_env(
+            {**_fa_shared_brave_env(), "NEXUS_ACCOUNTS_FILE": ACCOUNTS_FILE}
         )
         mailbox_proc = subprocess.Popen(
             [py_exe, MAILBOX_SCRIPT, "--auto-close"],
@@ -686,7 +708,7 @@ def _run_full_automation_body(skip_powershell=False, ps_script='', hot_words='')
         cur_run = subprocess.run(
             cursor_cmd,
             cwd=BASE_DIR,
-            env=_fa_child_env(),
+            env=_fa_child_env(_fa_shared_brave_env()),
             **_fa_sub_kw(use_console),
         )
         cur_rc = int(cur_run.returncode or 0)
