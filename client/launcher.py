@@ -1168,6 +1168,12 @@ body{
 .particles-bg{position:fixed;inset:0;z-index:0;pointer-events:none}
 .particle{position:absolute;width:2px;height:2px;background:#fff;border-radius:50%;box-shadow:0 0 10px #fff;animation:float 20s infinite linear}
 @keyframes float{0%{transform:translateY(100vh) translateX(0)}100%{transform:translateY(-100vh) translateX(100px)}}
+.waves-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.wave{position:absolute;width:200%;height:200%;background:radial-gradient(circle,rgba(255,255,255,.03),transparent 70%);border-radius:45%;animation:wave 15s infinite linear}
+.wave:nth-child(1){animation-duration:20s;opacity:.4}
+.wave:nth-child(2){animation-duration:25s;animation-delay:-5s;opacity:.3}
+.wave:nth-child(3){animation-duration:30s;animation-delay:-10s;opacity:.2}
+@keyframes wave{0%{transform:translate(-50%,-50%) rotate(0deg)}100%{transform:translate(-50%,-50%) rotate(360deg)}}
 .fa-vignette{position:fixed;inset:0;z-index:2;pointer-events:none;background:radial-gradient(ellipse at center,transparent 0%,rgba(0,0,0,.88) 100%)}
 .fa-noise{position:fixed;inset:-50%;z-index:3;pointer-events:none;opacity:.035;
   background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -1212,9 +1218,7 @@ body{
 .ui{
   position:relative;z-index:10;display:flex;flex-direction:column;
   height:100%;min-height:0;max-height:100vh;max-height:100dvh;max-height:100svh;
-  padding:0 24px 0;
-  /* место под фиксированный лог-док снизу (высота совпадает с max-height дока) */
-  padding-bottom:max(min(38vh, 300px), calc(env(safe-area-inset-bottom, 0px) + 12px));
+  padding:0 24px 20px;
   overflow:hidden;box-sizing:border-box;
 }
 .ui-top{flex-shrink:0}
@@ -1620,6 +1624,7 @@ input:focus,textarea:focus{
 <body>
 <canvas id="matrix-bg" aria-hidden="true"></canvas>
 <div id="particles-container" class="particles-bg"></div>
+<div id="waves-container" class="waves-bg"></div>
 <div class="fa-vignette" aria-hidden="true"></div>
 <div class="fa-noise" aria-hidden="true"></div>
 <div class="scanlines"></div>
@@ -1633,6 +1638,11 @@ input:focus,textarea:focus{
   <div class="title-wrap">
     <div class="title">NEXUS</div>
     <div class="subtitle">AUTOMATION SUITE</div>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('main',this)">// ГЛАВНАЯ</div>
+    <div class="tab" onclick="switchTab('cursor',this)">// CURSOR</div>
+    <div class="tab" onclick="switchTab('inbox',this);initInbox()">// INBOX</div>
   </div>
   </div>
 
@@ -1742,19 +1752,6 @@ input:focus,textarea:focus{
       <div style="color:#1a1a1a;font-family:Orbitron,monospace;font-size:9px;letter-spacing:3px;padding:20px;grid-column:1/-1">ЗАГРУЗКА...</div>
     </div>
   </div>
-  </div>
-
-  <div class="ui-log" id="nexus-log-dock">
-    <div class="log-label">// СТАТУС</div>
-    <div id="log" class="log-box log-status">&gt; панель активна — жду команды</div>
-    <div class="log-label">// ПРОГРЕСС</div>
-    <div class="activity-progress-track"><div id="activity-bar-fill" class="activity-progress-fill"></div></div>
-    <div id="activity-bar" style="font-family:Orbitron,monospace;font-size:10px;letter-spacing:3px;margin-top:2px">0%</div>
-    <div id="activity-phase" style="font-size:10px;line-height:1.45;margin-bottom:2px"></div>
-    <div class="log-label">// ЭТАПЫ (FULL AUTO)</div>
-    <div id="activity-steps" class="activity-steps"></div>
-    <div class="log-label">// ЛОГ (почта / Cursor / Full Auto)</div>
-    <pre id="activity-log" class="log-box log-scroll">ожидание данных с сервера…</pre>
   </div>
 
 </div>
@@ -2289,6 +2286,18 @@ document.addEventListener('DOMContentLoaded',()=>{
       p.style.animationDelay=Math.random()*20+'s';
       p.style.animationDuration=(15+Math.random()*10)+'s';
       container.appendChild(p);
+    }
+  }
+
+  // Animated waves
+  const wavesContainer=document.getElementById('waves-container');
+  if(wavesContainer){
+    for(let i=0;i<3;i++){
+      const wave=document.createElement('div');
+      wave.className='wave';
+      wave.style.left='50%';
+      wave.style.top='50%';
+      wavesContainer.appendChild(wave);
     }
   }
 });
